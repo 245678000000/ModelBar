@@ -111,8 +111,16 @@ struct PanelView: View {
 
     private var toolsModule: some View {
         PanelModule(title: "同步到") {
-            ForEach(ToolID.allCases) { tool in
+            ForEach(ToolID.allCases.filter { model.status(of: $0) != .notInstalled || model.isEnabled($0) }) { tool in
                 ToolRow(model: model, tool: tool, openSettings: openSettings)
+            }
+            if model.hiddenToolCount > 0 {
+                Button("还有 \(model.hiddenToolCount) 个工具未安装") { openSettings(.tools) }
+                    .buttonStyle(.link)
+                    .font(.system(size: 10.5))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
             }
         }
     }
@@ -356,7 +364,7 @@ private struct ToolRow: View {
     let openSettings: (SettingsPage?) -> Void
 
     private var state: ToolState { model.status(of: tool) }
-    private var isBridged: Bool { tool == .codex && model.isBridgeActive }
+    private var isBridged: Bool { model.isBridged(tool) }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -387,11 +395,11 @@ private struct ToolRow: View {
                 .foregroundStyle(state.tint)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
-            if tool == .codex, model.canOfferBridge, model.isEnabled(.codex) {
+            if model.canOfferBridge(for: tool) {
                 Button("开启本机转换") { model.setBridge(enabled: true) }
                     .buttonStyle(.link)
                     .font(.system(size: 10.5, weight: .medium))
-                    .help("运行一个只监听本机的后台服务，让 Codex 也能用这个接口")
+                    .help("运行一个只监听本机的后台服务，让这个工具也能用这个接口")
             }
         }
     }

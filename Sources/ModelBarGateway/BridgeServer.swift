@@ -2,8 +2,8 @@ import Foundation
 import ModelBarCore
 import Network
 
-/// 只监听本机的 HTTP 服务：接收 Codex 的 Responses 请求，转给上游的 Chat 接口。
-/// 日志只记录路径、状态和耗时，不记录密钥和对话内容。
+/// 只监听本机的 HTTP 服务：接收工具的 Responses 或 Anthropic 请求，转给上游的 Chat 接口。
+/// 日志记录路径、状态、耗时和上游的报错，不记录密钥和请求内容。
 final class BridgeServer: @unchecked Sendable {
     private let configFile: URL
     private let port: Int
@@ -75,7 +75,7 @@ final class BridgeServer: @unchecked Sendable {
             await client.respondJSON(status: 500, error: "无法读取转换服务配置")
             return 500
         }
-        guard isAuthorized(request.headers["authorization"], tokenFile: config.tokenFile) else {
+        guard isAuthorized(request.headers["authorization"], apiKey: request.headers["x-api-key"], tokenFile: config.tokenFile) else {
             await client.respondJSON(status: 401, error: "本机访问令牌不正确")
             return 401
         }
@@ -83,9 +83,15 @@ final class BridgeServer: @unchecked Sendable {
         switch (request.method, request.path) {
         case ("POST", "/v1/responses"):
             return await handleResponses(request, config: config, client: client)
+        case ("POST", "/v1/messages"):
+            return await handleMessages(request, config: config, client: client)
+        case ("POST", "/v1/messages/count_tokens"):
+            // 只用来估算上下文占用，按四个字节一个 token 粗算就够了。
+            await client.respondJSON(status: 200, object: ["input_tokens": request.body.count / 4])
+            return 200
         case ("GET", "/v1/models"):
-            // Codex 要的是它自己的模型目录格式，转发上游只会解析失败。回空列表，它会用默认设置。
-            await client.respondJSON(status: 200, object: ["models": [Any]()])
+            // 工具要的是它们自己的模型目录格式，转发上游只会解析失败。回空列表，它们会用默认设置。
+            await client.respondJSON(status: 200, object: ["models": [Any](), "data": [Any](), "has_more": false])
             return 200
         default:
             await client.respondJSON(status: 404, error: "转换服务不支持这个路径")
@@ -99,12 +105,17 @@ final class BridgeServer: @unchecked Sendable {
         return host == "127.0.0.1:\(port)" || host == "localhost:\(port)"
     }
 
-    private func isAuthorized(_ header: String?, tokenFile: String) -> Bool {
-        guard let expected = try? String(contentsOfFile: tokenFile, encoding: .utf8), !expected.isEmpty, let header else {
-            return false
-        }
-        let actual = Array(header.utf8)
-        let wanted = Array("Bearer \(expected)".utf8)
+    /// Claude Code 可能用 x-api-key 带令牌，其他工具用 Authorization。
+    private func isAuthorized(_ header: String?, apiKey: String?, tokenFile: String) -> Bool {
+        guard let expected = try? String(contentsOfFile: tokenFile, encoding: .utf8), !expected.isEmpty else { return false }
+        if let header, constantTimeEquals(header, "Bearer \(expected)") { return true }
+        if let apiKey, constantTimeEquals(apiKey, expected) { return true }
+        return false
+    }
+
+    private func constantTimeEquals(_ left: String, _ right: String) -> Bool {
+        let actual = Array(left.utf8)
+        let wanted = Array(right.utf8)
         guard actual.count == wanted.count else { return false }
         var difference: UInt8 = 0
         for index in actual.indices { difference |= actual[index] ^ wanted[index] }
@@ -133,7 +144,31 @@ final class BridgeServer: @unchecked Sendable {
             return 400
         }
         let translated = ResponsesBridge.translate(object)
+        let writer = ResponsesStreamWriter(model: translated.model, routes: translated.routes)
+        return await convert(translated, writer: writer, config: config, client: client, anthropicErrors: false)
+    }
 
+    // MARK: /v1/messages
+
+    private func handleMessages(_ request: HTTPRequest, config: BridgeConfig, client: BridgeClient) async -> Int {
+        guard let object = try? JSONSerialization.jsonObject(with: request.body) as? [String: Any] else {
+            await client.respondAnthropicError(status: 400, message: "请求不是有效的 JSON")
+            return 400
+        }
+        let translated = AnthropicBridge.translate(object, defaultEffort: config.defaultEffort)
+        let writer = AnthropicStreamWriter(model: translated.model, routes: translated.routes)
+        return await convert(translated, writer: writer, config: config, client: client, anthropicErrors: true)
+    }
+
+    // MARK: 转发到 Chat 接口
+
+    private func convert(
+        _ translated: TranslatedRequest,
+        writer: any ChatStreamConsumer,
+        config: BridgeConfig,
+        client: BridgeClient,
+        anthropicErrors: Bool
+    ) async -> Int {
         let bytes: URLSession.AsyncBytes
         let httpResponse: HTTPURLResponse
         do {
@@ -147,16 +182,21 @@ final class BridgeServer: @unchecked Sendable {
             bytes = stream
             httpResponse = http
         } catch {
-            await client.respondJSON(status: 502, error: "无法连接上游接口：\(error.localizedDescription)")
+            let message = "无法连接上游接口：\(error.localizedDescription)"
+            BridgeLog.write("upstream connection failed: \(BridgeLog.redacted(error.localizedDescription))")
+            if anthropicErrors {
+                await client.respondAnthropicError(status: 502, message: message)
+            } else {
+                await client.respondJSON(status: 502, error: message)
+            }
             return 502
         }
 
         guard (200..<300).contains(httpResponse.statusCode) else {
-            await forwardUpstreamError(status: httpResponse.statusCode, bytes: bytes, client: client)
+            await forwardUpstreamError(status: httpResponse.statusCode, bytes: bytes, client: client, anthropicErrors: anthropicErrors)
             return httpResponse.statusCode
         }
 
-        let writer = ResponsesStreamWriter(model: translated.model, routes: translated.routes)
         let isEventStream = httpResponse.value(forHTTPHeaderField: "Content-Type")?.contains("text/event-stream") ?? false
         if translated.isStreaming {
             await client.startEventStream()
@@ -169,8 +209,8 @@ final class BridgeServer: @unchecked Sendable {
             await client.send(events)
             await client.close()
         } else {
-            let status = (writer.response["status"] as? String) == "failed" ? 502 : 200
-            await client.respondJSON(status: status, object: writer.response)
+            let status = writer.didFail ? 502 : 200
+            await client.respondJSON(status: status, object: writer.finalObject)
             return status
         }
         return 200
@@ -180,7 +220,7 @@ final class BridgeServer: @unchecked Sendable {
     private func readUpstream(
         _ bytes: URLSession.AsyncBytes,
         isEventStream: Bool,
-        writer: ResponsesStreamWriter,
+        writer: any ChatStreamConsumer,
         deliver: ([BridgeEvent]) async -> Void
     ) async -> [BridgeEvent] {
         do {
@@ -208,6 +248,7 @@ final class BridgeServer: @unchecked Sendable {
                     break lineLoop
                 case .chunk(let chunk):
                     if let error = chunk["error"] {
+                        BridgeLog.write("upstream stream error: \(BridgeLog.redacted(String(Self.errorMessage(error).prefix(200))))")
                         return writer.fail(message: Self.errorMessage(error), code: "upstream_error")
                     }
                     await deliver(writer.consume(chunk))
@@ -217,6 +258,7 @@ final class BridgeServer: @unchecked Sendable {
         } catch is CancellationError {
             return []
         } catch {
+            BridgeLog.write("upstream disconnected: \(BridgeLog.redacted(error.localizedDescription))")
             return writer.fail(message: "上游连接中断：\(error.localizedDescription)", code: "upstream_disconnected")
         }
     }
@@ -244,7 +286,7 @@ final class BridgeServer: @unchecked Sendable {
         return "上游接口返回了错误"
     }
 
-    private func forwardUpstreamError(status: Int, bytes: URLSession.AsyncBytes, client: BridgeClient) async {
+    private func forwardUpstreamError(status: Int, bytes: URLSession.AsyncBytes, client: BridgeClient, anthropicErrors: Bool) async {
         var data = Data()
         do {
             for try await byte in bytes {
@@ -252,7 +294,15 @@ final class BridgeServer: @unchecked Sendable {
                 if data.count >= 64 * 1024 { break }
             }
         } catch {}
-        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], object["error"] != nil {
+        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        BridgeLog.write("upstream returned \(status): \(BridgeLog.redacted(String(decoding: data.prefix(200), as: UTF8.self)))")
+        if anthropicErrors {
+            let nested = (object?["error"] as? [String: Any])?["message"] as? String
+            let message = nested ?? object?["error"] as? String ?? String(data: data.prefix(500), encoding: .utf8) ?? ""
+            await client.respondAnthropicError(status: status, message: message.isEmpty ? "上游接口返回 HTTP \(status)" : message)
+            return
+        }
+        if object?["error"] != nil {
             await client.respond(status: status, contentType: "application/json", body: data)
             return
         }
@@ -355,6 +405,18 @@ final class BridgeClient: @unchecked Sendable {
         await respondJSON(status: status, object: ["error": ["message": error, "type": "modelbar_bridge"]])
     }
 
+    func respondAnthropicError(status: Int, message: String) async {
+        let kind: String = switch status {
+        case 400: "invalid_request_error"
+        case 401: "authentication_error"
+        case 403: "permission_error"
+        case 404: "not_found_error"
+        case 429: "rate_limit_error"
+        default: "api_error"
+        }
+        await respondJSON(status: status, object: ["type": "error", "error": ["type": kind, "message": message]])
+    }
+
     func startEventStream() async {
         let head = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
         await write(Data(head.utf8))
@@ -391,5 +453,14 @@ enum BridgeLog {
     static func write(_ message: String) {
         let stamp = ISO8601DateFormatter().string(from: Date())
         fputs("\(stamp) \(message)\n", stderr)
+    }
+
+    /// 上游的报错可能把 Key 带回来，写日志前先抹掉。
+    static func redacted(_ text: String) -> String {
+        var result = text.replacingOccurrences(of: "\n", with: " ")
+        for pattern in ["sk-[A-Za-z0-9_-]{6,}", "Bearer [A-Za-z0-9._-]{6,}", "mb-[0-9a-f]{8,}"] {
+            result = result.replacingOccurrences(of: pattern, with: "<redacted>", options: .regularExpression)
+        }
+        return result
     }
 }

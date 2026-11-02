@@ -14,14 +14,13 @@ public struct AppState: Codable, Equatable, Sendable {
         endpoints.first { $0.id == activeEndpointID }
     }
 
-    /// Codex 已启用、当前接口只有 Chat，并且用户开启了本机转换。
+    /// 用户开启了本机转换，并且有已启用的工具用不了当前接口的原生协议。
     public var needsBridge: Bool {
-        bridgeEnabled && enabledTools.contains(.codex) && activeEndpointNeedsConversion
+        bridgeEnabled && !toolsNeedingConversion.isEmpty
     }
 
-    public var activeEndpointNeedsConversion: Bool {
-        guard let probe = activeEndpoint?.probe else { return false }
-        return probe.responses == .failed && probe.chat != .failed
+    public var toolsNeedingConversion: [ToolID] {
+        enabledTools.filter { $0.needsConversion(activeEndpoint?.probe) }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -168,17 +167,22 @@ public actor SyncEngine {
                 someToolKeepsOldEndpoint = true
                 continue
             }
-            if adapter.id == .codex, let bridgeFailure {
-                report.statuses[adapter.id] = .failed(bridgeFailure)
-                someToolKeepsOldEndpoint = true
-                continue
+            var toolContext = context
+            toolContext.bridge = nil
+            if state.bridgeEnabled, adapter.id.needsConversion(context.endpoint.probe) {
+                if let bridgeFailure {
+                    report.statuses[adapter.id] = .failed(bridgeFailure)
+                    someToolKeepsOldEndpoint = true
+                    continue
+                }
+                toolContext.bridge = context.bridge
             }
             do {
-                if adapter.isApplied(context) {
+                if adapter.isApplied(toolContext) {
                     report.statuses[adapter.id] = .synced
                     continue
                 }
-                if let originals = try adapter.apply(context) {
+                if let originals = try adapter.apply(toolContext) {
                     report.originals[adapter.id] = originals
                 }
                 report.statuses[adapter.id] = .synced
@@ -205,7 +209,9 @@ public actor SyncEngine {
             try adapter.restore(paths: paths, backups: backups, originals: state.originals[tool] ?? [:])
             report.removedOriginals = [tool]
             report.statuses[tool] = adapter.isInstalled(paths: paths) ? .disabled : .notInstalled
-            if tool == .codex { bridge.stop() }
+            var remaining = state
+            remaining.enabledTools.removeAll { $0 == tool }
+            if !remaining.needsBridge { bridge.stop() }
             if let note = adapter.reload(paths: paths) { report.notes.append(note) }
         } catch {
             report.statuses[tool] = .failed(error.localizedDescription)
@@ -233,7 +239,7 @@ public actor SyncEngine {
                 result[adapter.id] = .incompatible(reason)
                 continue
             }
-            if adapter.id == .codex, state.needsBridge {
+            if state.bridgeEnabled, adapter.id.needsConversion(context.endpoint.probe) {
                 context.bridge = bridge.target()
                 if !bridge.isHealthy() {
                     result[adapter.id] = .failed("本机转换服务没有运行，点“重新同步”可以重启")
@@ -263,10 +269,12 @@ public actor SyncEngine {
     private func makeContext(_ state: AppState, report: inout SyncReport) -> SyncContext? {
         guard let endpoint = state.activeEndpoint, let model = endpoint.currentModel else { return nil }
         do {
-            let key = try keyStore.key(for: endpoint.id)
             var keyFile: URL?
-            if let key, !key.isEmpty {
-                let file = paths.keyFile(for: endpoint.id)
+            let file = paths.keyFile(for: endpoint.id)
+            // 已有的 Key 文件直接用：应用更新后签名会变，每次都读钥匙串就会反复弹窗。改 Key 时会删掉这个文件。
+            if let existing = try? Data(contentsOf: file), !existing.isEmpty {
+                keyFile = file
+            } else if let key = try keyStore.key(for: endpoint.id), !key.isEmpty {
                 try FileSupport.writePrivate(Data(key.utf8), to: file)
                 keyFile = file
             }

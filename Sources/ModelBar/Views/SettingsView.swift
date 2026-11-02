@@ -273,8 +273,9 @@ private struct EndpointDetailView: View {
     private func testing(_ endpoint: Endpoint) -> some View {
         Section {
             ProbeRow(title: "模型列表", caption: "GET /models", status: endpoint.probe?.models ?? .unknown)
-            ProbeRow(title: "Chat Completions", caption: "opencode、Kilo Code 使用", status: endpoint.probe?.chat ?? .unknown)
+            ProbeRow(title: "Chat Completions", caption: "opencode、pi、Grok、Droid、Kilo Code 使用", status: endpoint.probe?.chat ?? .unknown)
             ProbeRow(title: "Responses", caption: "Codex CLI 需要", status: endpoint.probe?.responses ?? .unknown)
+            ProbeRow(title: "Anthropic", caption: "Claude Code 需要", status: endpoint.probe?.messages ?? .unknown)
             if let message = endpoint.probe?.message {
                 Text(message).font(.callout).foregroundStyle(.secondary)
             }
@@ -295,7 +296,7 @@ private struct EndpointDetailView: View {
                 }
             }
         } footer: {
-            Text("测试会发送两条极短的真实请求，可能产生极少量费用。")
+            Text("测试会发送三条极短的真实请求，可能产生极少量费用。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -616,6 +617,31 @@ private struct ToolsPane: View {
 
     var body: some View {
         Form {
+            if model.state.bridgeEnabled || model.canOfferBridge {
+                Section {
+                    Toggle(isOn: Binding(
+                        get: { model.state.bridgeEnabled },
+                        set: { model.setBridge(enabled: $0) }
+                    )) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("本机转换")
+                            Text("让 Codex 和 Claude Code 也能用只有 Chat 协议的接口。会运行一个只监听本机的后台服务，ModelBar 退出后继续运行，不再需要时自动移除。联网搜索这类依赖官方服务端的功能不可用。")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    if model.isBridgeActive {
+                        HStack {
+                            Text("日志记录请求状态和上游的报错，不记录密钥和请求内容")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("查看日志") { model.reveal(model.paths.bridgeLog) }
+                        }
+                    }
+                }
+            }
             ForEach(ToolID.allCases) { tool in
                 ToolSection(model: model, tool: tool)
             }
@@ -708,7 +734,9 @@ private struct ToolSection: View {
         switch tool {
         case .opencode: "curl -fsSL https://opencode.ai/install | bash"
         case .codex: "npm install -g @openai/codex"
-        case .kilo: nil
+        case .claudeCode: "curl -fsSL https://claude.ai/install.sh | bash"
+        case .pi: "npm install -g @earendil-works/pi-coding-agent"
+        case .grok, .droid, .kilo: nil
         }
     }
 
@@ -720,34 +748,25 @@ private struct ToolSection: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
         case .codex:
-            if !model.isBridgeActive {
-                Text("Codex 只支持 Responses API。接口不支持时不会写入配置，也不会影响你现有的设置。")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            if model.state.bridgeEnabled || model.canOfferBridge {
-                Toggle(isOn: Binding(
-                    get: { model.state.bridgeEnabled },
-                    set: { model.setBridge(enabled: $0) }
-                )) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("本机转换")
-                        Text("让 Codex 也能用只有 Chat 协议的接口。会运行一个只监听本机的后台服务，ModelBar 退出后继续运行，关闭后自动移除。联网搜索这类依赖 OpenAI 服务端的功能不可用。")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .toggleStyle(.switch)
-                if model.isBridgeActive {
-                    HStack {
-                        Text("转换服务的日志不包含密钥和对话内容")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button("查看日志") { model.reveal(model.paths.bridgeLog) }
-                    }
-                }
-            }
+            Text("Codex 只支持 Responses API。接口不支持时，开启本机转换才能使用。Cursor 和 VS Code 里的 Codex 扩展读的也是这份配置。")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        case .claudeCode:
+            Text("Claude Code 只支持 Anthropic 协议。接口不支持时，开启本机转换才能使用。打开后，新开的 Claude Code 会话和 VS Code 扩展都会走这个接口，已经在运行的会话不受影响。")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        case .pi:
+            Text("默认模型会切到这个接口，也可以在 pi 里随时换回你其他的模型。")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        case .grok:
+            Text("Grok 不支持给自定义模型设置推理档位，所以这里的档位对它不起作用。")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        case .droid:
+            Text("需要先登录 Factory 账号。Droid 只接受明文 Key，所以 Key 会写进它的配置文件（权限 0600），关闭开关时移除。")
+                .font(.callout)
+                .foregroundStyle(.secondary)
         case .kilo:
             VStack(alignment: .leading, spacing: 6) {
                 Text("在 Cursor 或 VS Code 的侧边栏使用，有自己的对话面板。切换后如未生效，请重载编辑器窗口。")

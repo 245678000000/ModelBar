@@ -56,6 +56,7 @@ public struct ProbeResult: Codable, Hashable, Sendable {
     public var models: ProbeStatus
     public var chat: ProbeStatus
     public var responses: ProbeStatus
+    public var messages: ProbeStatus
     public var latencyMs: Int?
     public var message: String?
     public var testedAt: Date
@@ -64,6 +65,7 @@ public struct ProbeResult: Codable, Hashable, Sendable {
         models: ProbeStatus = .unknown,
         chat: ProbeStatus = .unknown,
         responses: ProbeStatus = .unknown,
+        messages: ProbeStatus = .unknown,
         latencyMs: Int? = nil,
         message: String? = nil,
         testedAt: Date = Date()
@@ -71,9 +73,26 @@ public struct ProbeResult: Codable, Hashable, Sendable {
         self.models = models
         self.chat = chat
         self.responses = responses
+        self.messages = messages
         self.latencyMs = latencyMs
         self.message = message
         self.testedAt = testedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case models, chat, responses, messages, latencyMs, message, testedAt
+    }
+
+    /// 旧版本保存的结果没有 messages，不能因此读取失败。
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        models = try container.decodeIfPresent(ProbeStatus.self, forKey: .models) ?? .unknown
+        chat = try container.decodeIfPresent(ProbeStatus.self, forKey: .chat) ?? .unknown
+        responses = try container.decodeIfPresent(ProbeStatus.self, forKey: .responses) ?? .unknown
+        messages = try container.decodeIfPresent(ProbeStatus.self, forKey: .messages) ?? .unknown
+        latencyMs = try container.decodeIfPresent(Int.self, forKey: .latencyMs)
+        message = try container.decodeIfPresent(String.self, forKey: .message)
+        testedAt = try container.decodeIfPresent(Date.self, forKey: .testedAt) ?? Date()
     }
 }
 
@@ -146,31 +165,52 @@ public struct Endpoint: Codable, Hashable, Identifiable, Sendable {
 }
 
 public enum ToolID: String, Codable, CodingKeyRepresentable, CaseIterable, Identifiable, Sendable {
-    case opencode, codex, kilo
+    case claudeCode, codex, opencode, pi, grok, droid, kilo
 
     public var id: String { rawValue }
 
     public var title: String {
         switch self {
-        case .opencode: "opencode"
+        case .claudeCode: "Claude Code"
         case .codex: "Codex CLI"
+        case .opencode: "opencode"
+        case .pi: "pi"
+        case .grok: "Grok"
+        case .droid: "Factory Droid"
         case .kilo: "Kilo Code"
         }
     }
 
     public var subtitle: String {
         switch self {
-        case .opencode: "终端 Agent"
-        case .codex: "终端 Agent"
+        case .claudeCode: "终端和 VS Code 扩展"
+        case .codex: "终端和 Cursor / VS Code 扩展"
+        case .opencode, .pi, .grok, .droid: "终端 Agent"
         case .kilo: "Cursor / VS Code 扩展"
         }
     }
 
     public var symbol: String {
         switch self {
-        case .opencode: "terminal.fill"
+        case .claudeCode: "sparkle"
         case .codex: "chevron.left.forwardslash.chevron.right"
+        case .opencode: "terminal.fill"
+        case .pi: "function"
+        case .grok: "bolt.fill"
+        case .droid: "cpu.fill"
         case .kilo: "puzzlepiece.extension.fill"
+        }
+    }
+}
+
+extension ToolID {
+    /// 这个工具用不了接口的原生协议，需要本机转换才能接入。
+    public func needsConversion(_ probe: ProbeResult?) -> Bool {
+        guard let probe, probe.chat != .failed else { return false }
+        switch self {
+        case .codex: return probe.responses == .failed
+        case .claudeCode: return probe.messages == .failed
+        default: return false
         }
     }
 }

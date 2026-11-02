@@ -57,8 +57,12 @@ struct ToolTile: View {
 
     private var colors: [Color] {
         switch tool {
-        case .opencode: [Color(white: 0.34), Color(white: 0.16)]
+        case .claudeCode: [Color(red: 0.91, green: 0.55, blue: 0.40), Color(red: 0.78, green: 0.38, blue: 0.25)]
         case .codex: [Color(red: 0.32, green: 0.55, blue: 1.0), Color(red: 0.17, green: 0.34, blue: 0.86)]
+        case .opencode: [Color(white: 0.34), Color(white: 0.16)]
+        case .pi: [Color(red: 0.25, green: 0.78, blue: 0.68), Color(red: 0.08, green: 0.56, blue: 0.50)]
+        case .grok: [Color(white: 0.20), Color(white: 0.05)]
+        case .droid: [Color(red: 0.62, green: 0.50, blue: 0.96), Color(red: 0.40, green: 0.28, blue: 0.80)]
         case .kilo: [Color(red: 0.98, green: 0.72, blue: 0.27), Color(red: 0.90, green: 0.50, blue: 0.10)]
         }
     }

@@ -60,7 +60,12 @@ final class AppModel {
     }
 
     func start() {
-        refreshStatuses()
+        // 应用更新后转换服务可能还是旧版本，同步时会自动重启它。
+        if state.needsBridge {
+            syncNow()
+        } else {
+            refreshStatuses()
+        }
         onChange?()
     }
 
@@ -135,7 +140,13 @@ final class AppModel {
         if enabled {
             guard !state.enabledTools.contains(tool) else { return }
             state.enabledTools.append(tool)
-            syncNow()
+            // 旧版本的测试结果里没有 Anthropic 这一项，打开 Claude Code 时要补测。
+            if tool == .claudeCode, let active = activeEndpoint, active.probe?.messages == .unknown {
+                persist()
+                test(active.id)
+            } else {
+                syncNow()
+            }
         } else {
             state.enabledTools.removeAll { $0 == tool }
             persist()
@@ -149,22 +160,37 @@ final class AppModel {
 
     // MARK: 本机转换
 
-    /// 当前接口只有 Chat，用户还没开启转换，可以提示开启。
+    /// 这个工具用不了当前接口的原生协议，用户还没开启转换，可以提示开启。
+    func canOfferBridge(for tool: ToolID) -> Bool {
+        !state.bridgeEnabled && isEnabled(tool) && tool.needsConversion(activeEndpoint?.probe)
+    }
+
     var canOfferBridge: Bool {
-        !state.bridgeEnabled && state.activeEndpointNeedsConversion
+        !state.bridgeEnabled && !state.toolsNeedingConversion.isEmpty
+    }
+
+    func isBridged(_ tool: ToolID) -> Bool {
+        state.bridgeEnabled && isEnabled(tool) && tool.needsConversion(activeEndpoint?.probe)
     }
 
     var isBridgeActive: Bool { state.needsBridge }
 
+    var hiddenToolCount: Int {
+        ToolID.allCases.filter { status(of: $0) == .notInstalled && !isEnabled($0) }.count
+    }
+
     func setBridge(enabled: Bool) {
         guard state.bridgeEnabled != enabled else { return }
+        let bridged = state.toolsNeedingConversion
         state.bridgeEnabled = enabled
         if enabled {
             syncNow()
         } else {
             persist()
-            // Codex 可能正连着转换服务，要先恢复它原来的配置。
-            Task { await disable(.codex) }
+            // 这些工具可能正连着转换服务，要先恢复它们原来的配置。
+            Task {
+                for tool in bridged { await disable(tool) }
+            }
         }
     }
 
@@ -193,6 +219,8 @@ final class AppModel {
         if let key {
             let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
             try keyStore.setKey(trimmed, for: id)
+            // 删掉旧的副本，下次同步时写入新 Key。
+            try? FileManager.default.removeItem(at: paths.keyFile(for: id))
             mutate(id) { $0.hasKey = !trimmed.isEmpty }
         }
         mutate(id) { endpoint in

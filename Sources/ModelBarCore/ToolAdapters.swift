@@ -324,6 +324,8 @@ public struct CodexAdapter: ToolAdapter {
 
 public enum ToolCatalog {
     public static let adapters: [any ToolAdapter] = [
+        ClaudeCodeAdapter(),
+        CodexAdapter(),
         OpenCodeFamilyAdapter(
             id: .opencode,
             baseName: "opencode",
@@ -334,7 +336,9 @@ public enum ToolCatalog {
             },
             reloader: { OpenCodeService.restartIfRunning(paths: $0) }
         ),
-        CodexAdapter(),
+        PiAdapter(),
+        GrokAdapter(),
+        DroidAdapter(),
         OpenCodeFamilyAdapter(
             id: .kilo,
             baseName: "kilo",

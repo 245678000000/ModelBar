@@ -4,7 +4,7 @@ import Security
 
 public enum BridgeInfo {
     /// 转换服务和应用的协议版本。应用更新后如果版本不同，会重启服务。
-    public static let version = 2
+    public static let version = 4
     public static let defaultPort = 47631
     public static let portSearchRange = 20
 }
@@ -15,12 +15,15 @@ public struct BridgeConfig: Codable, Equatable, Sendable {
     public var tokenFile: String
     public var upstreamBaseURL: String
     public var upstreamKeyFile: String?
+    /// 请求没带推理档位时使用。Claude Code 不一定会为陌生模型发送档位。
+    public var defaultEffort: String?
 
-    public init(port: Int, tokenFile: String, upstreamBaseURL: String, upstreamKeyFile: String?) {
+    public init(port: Int, tokenFile: String, upstreamBaseURL: String, upstreamKeyFile: String?, defaultEffort: String? = nil) {
         self.port = port
         self.tokenFile = tokenFile
         self.upstreamBaseURL = upstreamBaseURL
         self.upstreamKeyFile = upstreamKeyFile
+        self.defaultEffort = defaultEffort
     }
 
     public static func load(from file: URL) throws -> BridgeConfig {
@@ -135,7 +138,8 @@ public struct BridgeManager: Sendable {
             port: port,
             tokenFile: tokenFile.path,
             upstreamBaseURL: endpoint.baseURL,
-            upstreamKeyFile: keyFile?.path
+            upstreamKeyFile: keyFile?.path,
+            defaultEffort: endpoint.effort.wireValue
         )
         if config != previous {
             let encoder = JSONEncoder()

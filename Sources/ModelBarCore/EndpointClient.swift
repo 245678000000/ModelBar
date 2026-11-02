@@ -39,7 +39,7 @@ public struct EndpointClient: Sendable {
         return models
     }
 
-    /// 依次测试模型列表、Chat 和 Responses。后两项各发一条极短的真实请求。
+    /// 依次测试模型列表、Chat、Responses 和 Anthropic。后三项各发一条极短的真实请求。
     public func probe(baseURL: String, key: String?, model: String?) async -> (ProbeResult, [ModelInfo]) {
         var result = ProbeResult()
         var models: [ModelInfo] = []
@@ -73,9 +73,17 @@ public struct EndpointClient: Sendable {
             key: key,
             body: ["model": model, "input": "ping", "max_output_tokens": 16, "stream": false]
         )
-        let (chatOutcome, responsesOutcome) = await (chat, responses)
+        async let anthropic = postProbe(
+            baseURL: baseURL,
+            path: "messages",
+            key: key,
+            body: ["model": model, "max_tokens": 1, "messages": [["role": "user", "content": "ping"]]],
+            extraHeaders: ["anthropic-version": "2023-06-01", "x-api-key": key ?? ""]
+        )
+        let (chatOutcome, responsesOutcome, anthropicOutcome) = await (chat, responses, anthropic)
         result.chat = chatOutcome.status
         result.responses = responsesOutcome.status
+        result.messages = anthropicOutcome.status
         if result.message == nil, chatOutcome.status == .failed, responsesOutcome.status == .failed {
             result.message = chatOutcome.message ?? responsesOutcome.message
         }
@@ -86,12 +94,14 @@ public struct EndpointClient: Sendable {
         baseURL: String,
         path: String,
         key: String?,
-        body: [String: Any]
+        body: [String: Any],
+        extraHeaders: [String: String] = [:]
     ) async -> (status: ProbeStatus, message: String?) {
         do {
             var request = try makeRequest(baseURL: baseURL, path: path, key: key)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            for (name, value) in extraHeaders where !value.isEmpty { request.setValue(value, forHTTPHeaderField: name) }
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             let (data, response) = try await session.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0

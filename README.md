@@ -22,52 +22,61 @@
 
 | 工具 | 在哪里用 | 写入的配置 | 接口要求 |
 |---|---|---|---|
+| Claude Code | 终端、VS Code 扩展 | `~/.claude/settings.json` | Anthropic；只有 Chat 时需开启本机转换 |
+| Codex CLI | 终端、Cursor / VS Code 扩展 | `~/.codex/config.toml` | Responses；只有 Chat 时需开启本机转换 |
 | opencode | 终端 | `~/.config/opencode/opencode.json` | Chat Completions 或 Responses |
-| Codex CLI | 终端 | `~/.codex/config.toml` | Responses；只有 Chat 时需开启本机转换 |
+| pi | 终端 | `~/.pi/agent/models.json`、`settings.json` | Chat Completions 或 Responses |
+| Grok | 终端 | `~/.grok/config.toml` | Chat Completions |
+| Factory Droid | 终端 | `~/.factory/settings.json` | Chat Completions 或 Responses |
 | Kilo Code | Cursor / VS Code 扩展 | `~/.config/kilo/kilo.json` | Chat Completions 或 Responses |
+
+面板只显示已安装的工具。
 
 其他工具（比如 Cline）可以在接口详情页拷贝 Base URL、模型名和 Key，手动填入。
 
 ## 限制
 
 - **Cursor 自带的 Agent 面板和 Tab 补全用不了这些接口。** 在 Cursor 里要用 Kilo Code 扩展的面板。
-- **接口只有 Chat 时，Codex 默认不会切换。** ModelBar 不写入配置，Codex 保持原样。需要时可以开启下面的本机转换。
+- **接口只有 Chat 时，Codex 和 Claude Code 默认不会切换。** ModelBar 不写入配置，它们保持原样。需要时可以开启下面的本机转换。
+- **Grok 的推理档位不生效。** 它不支持给自定义模型设置档位。
+- **Factory Droid 需要登录 Factory 账号。** 它只接受明文 Key，所以 Key 会写进它的配置文件（权限 0600），关闭开关时移除。
 - **推理档位能否生效取决于服务商。** ModelBar 负责把 `reasoning_effort` 发出去。
-- **Kilo Code 还没有用真实扩展测试过。** 配置格式来自官方文档。
+- **测试范围：** Claude Code、Codex、opencode、pi、Grok 和 Kilo Code 都用真实程序跑过对话和工具调用。Kilo Code 用的是扩展自带的命令行程序，没有测过编辑器里的面板。**Factory Droid 没有实际运行过**，它的配置格式和已有的自定义模型一致。
 - 其他也会改 `~/.codex/config.toml` 的工具可能和 ModelBar 互相覆盖。ModelBar 发现配置被改后会提示，不会自动改回去。
 
 ## 本机转换
 
-Codex 只支持 Responses API，而很多接口只有 Chat。开启“本机转换”后，ModelBar 会运行一个后台服务：Codex 连接本机，服务把请求翻译成 Chat 发给接口，再把回复翻译回来。
+Codex 只支持 Responses API，Claude Code 只支持 Anthropic 协议，而很多接口只有 Chat。开启“本机转换”后，ModelBar 会运行一个后台服务：工具连接本机，服务把请求翻译成 Chat 发给接口，再把回复翻译回来。
 
-**怎么开启：** 接口只有 Chat 时，打开 Codex 的开关，面板里会出现“开启本机转换”。在“工具同步”页面也能开关。
+**怎么开启：** 接口只有 Chat 时，打开 Codex 或 Claude Code 的开关，面板里会出现“开启本机转换”。在“工具同步”页面也能开关。
 
-**运行方式：** 服务由系统的 launchd 托管，ModelBar 退出后继续运行，崩溃后自动重启。关闭转换、关闭 Codex 开关或切到支持 Responses 的接口时，服务会被移除，Codex 配置随之恢复或改回直连。
+**运行方式：** 服务由系统的 launchd 托管，ModelBar 退出后继续运行，崩溃后自动重启。关闭转换、关闭相关开关或切到原生支持的接口时，服务会被移除，工具配置随之恢复或改回直连。应用更新后，服务会自动重启到新版本。
 
 **可用的功能：** 普通对话、流式输出、工具调用（包括执行命令）、多轮对话、推理档位、图片。
 
-**不可用的功能：** 联网搜索这类由 OpenAI 服务端执行的工具，翻译时会被去掉。
+**不可用的功能：** 联网搜索这类由官方服务端执行的工具，翻译时会被去掉。
 
 **安全措施：**
 - 只监听 `127.0.0.1`，局域网访问不到。
 - 请求必须带本机访问令牌，令牌存在权限 0600 的文件里。
 - 校验 Host，防止网页通过 DNS 重绑定访问。
-- 日志只记录路径、状态和耗时，不记录密钥和对话内容，位置是 `~/Library/Logs/ModelBar/bridge.log`。
+- 日志记录路径、状态、耗时和上游的报错（最多 200 字，已抹掉 Key），不记录请求内容，位置是 `~/Library/Logs/ModelBar/bridge.log`。
 
-**测试情况：** 已用真实的 Codex 和一个真实的 Chat 接口跑通普通对话和工具调用。其他服务商可能拒绝部分参数，比如 `stream_options`、`reasoning_effort`，遇到时 Codex 会显示接口返回的错误。图片目前只有单元测试。
+**测试情况：** 已用真实的 Codex、Claude Code 和一个真实的 Chat 接口跑通普通对话和工具调用。其他服务商可能拒绝部分参数，比如 `stream_options`、`reasoning_effort`，遇到时工具会显示接口返回的错误。图片目前只有单元测试。
 
-**模型要求：** 模型必须支持工具调用，否则 Codex 能聊天但不能执行命令。
+**模型要求：** 模型必须支持工具调用，否则工具能聊天但不能执行命令。
 
-**启动时的提示：** Codex 可能显示找不到模型元数据（`Model metadata ... not found`），这是因为它不认识这个模型，会改用默认设置。
+**启动时的提示：** Codex 可能显示 `Model metadata ... not found`，Claude Code 可能提示不认识这个模型。这是因为它们不认识这个模型，会改用默认设置。
 
 ## 数据和安全
 
 - 主密钥存在系统钥匙串。
 - 工具读不了钥匙串，所以当前接口的 Key 会另存一份权限 0600 的文件，切换接口或停用全部工具时自动删除。如果某个工具还停留在上一个接口，它的 Key 文件会保留到下次全部同步成功。
-- 工具的配置文件里只写这个文件的路径，不写 Key 本身。
+- 工具的配置文件里只写这个文件的路径，不写 Key 本身（Factory Droid 除外）。
+- 打开 Claude Code 的开关时，原来的 `ANTHROPIC_AUTH_TOKEN` 会移到 ModelBar 的设置文件里（权限 0600），关闭开关时放回。
 - 每次改配置前自动备份，每个工具保留最近 10 份，位置是 `~/Library/Application Support/ModelBar/backups`。
 - 关闭工具的开关会恢复它原来的配置。
-- “测试连接”会发送两条极短的真实请求，可能产生极少量费用。除此之外，ModelBar 只在你操作时访问你填写的接口，不连接其他服务器。
+- “测试连接”会发送三条极短的真实请求，可能产生极少量费用。除此之外，ModelBar 只在你操作时访问你填写的接口，不连接其他服务器。
 
 opencode 的后台服务不会自动读取新配置，所以切换时如果它正在运行，ModelBar 会重启它，进行中的会话可能被打断。
 

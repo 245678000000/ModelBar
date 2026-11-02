@@ -38,6 +38,10 @@ public struct AppPaths: Sendable {
     public var kiloDirectory: URL { home.appending(path: ".config/kilo", directoryHint: .isDirectory) }
     public var codexDirectory: URL { home.appending(path: ".codex", directoryHint: .isDirectory) }
     public var codexConfig: URL { codexDirectory.appending(path: "config.toml") }
+    public var claudeSettings: URL { home.appending(path: ".claude/settings.json") }
+    public var piDirectory: URL { home.appending(path: ".pi/agent", directoryHint: .isDirectory) }
+    public var grokConfig: URL { home.appending(path: ".grok/config.toml") }
+    public var droidSettings: URL { home.appending(path: ".factory/settings.json") }
 
     /// 优先使用已存在的配置文件，避免新建一个优先级不明确的文件。
     public func jsonConfig(in directory: URL, baseName: String) -> URL {
@@ -53,7 +57,7 @@ public struct AppPaths: Sendable {
     /// 图形应用的 PATH 很短，所以直接查常见的安装目录。
     public var binaryDirectories: [URL] {
         [
-            ".opencode/bin", ".local/bin", ".npm-global/bin", ".bun/bin", ".cargo/bin",
+            ".opencode/bin", ".grok/bin", ".local/bin", ".npm-global/bin", ".bun/bin", ".cargo/bin",
         ].map { home.appending(path: $0, directoryHint: .isDirectory) }
             + ["/opt/homebrew/bin", "/usr/local/bin"].map { URL(fileURLWithPath: $0, isDirectory: true) }
     }

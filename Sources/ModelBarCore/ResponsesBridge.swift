@@ -335,8 +335,19 @@ public struct BridgeEvent {
     }
 }
 
+/// 转换服务读取 Chat 回复时用的统一接口，Responses 和 Anthropic 各有一种实现。
+public protocol ChatStreamConsumer: AnyObject {
+    var finalObject: [String: Any] { get }
+    var didFail: Bool { get }
+    func start() -> [BridgeEvent]
+    func consume(_ chunk: [String: Any]) -> [BridgeEvent]
+    func consumeCompletion(_ completion: [String: Any]) -> [BridgeEvent]
+    func finish() -> [BridgeEvent]
+    func fail(message: String, code: String) -> [BridgeEvent]
+}
+
 /// 逐块读取 Chat 的回复，生成对应的 Responses 事件。
-public final class ResponsesStreamWriter {
+public final class ResponsesStreamWriter: ChatStreamConsumer {
     private struct ToolCall {
         var itemID: String
         var callID: String
@@ -369,6 +380,8 @@ public final class ResponsesStreamWriter {
     private var toolOrder: [Int] = []
 
     public private(set) var response: [String: Any] = [:]
+    public var finalObject: [String: Any] { response }
+    public var didFail: Bool { failure != nil }
 
     public init(model: String, routes: [String: ToolRoute]) {
         self.model = model

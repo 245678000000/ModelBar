@@ -474,7 +474,7 @@ private final class FakeControl: BridgeServiceControl, @unchecked Sendable {
 
     @Test func offerOnlyAppliesToChatOnlyEndpoints() throws {
         var (_, _, _, _, state) = try setup()
-        #expect(state.activeEndpointNeedsConversion)
+        #expect(state.toolsNeedingConversion == [.codex])
         #expect(!state.needsBridge)
         state.bridgeEnabled = true
         #expect(state.needsBridge)

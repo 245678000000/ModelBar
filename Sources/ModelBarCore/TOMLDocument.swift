@@ -63,6 +63,47 @@ public struct TOMLDocument {
         lines.insert("\(key) = \(rawValue)", at: topLevelInsertionIndex())
     }
 
+    /// 改表里的键。`rawValue` 为 nil 时删除该键，表因此变空时连表头一起删除。
+    public mutating func set(_ key: String, rawValue: String?, inTable table: String) {
+        if let range = keyRange(key, table: table) {
+            if let rawValue {
+                lines.replaceSubrange(range, with: ["\(key) = \(rawValue)"])
+            } else {
+                lines.removeSubrange(range)
+                removeTableIfEmpty(table)
+            }
+            return
+        }
+        guard let rawValue else { return }
+        let info = scan()
+        guard let header = info.firstIndex(where: { $0.kind == .header(table) }) else {
+            appendBlock(["[\(table)]", "\(key) = \(rawValue)"])
+            return
+        }
+        var insertion = header + 1
+        var index = header + 1
+        while index < info.count, !isHeader(info[index].kind) {
+            switch info[index].kind {
+            case .keyValue, .continuation: insertion = index + 1
+            default: break
+            }
+            index += 1
+        }
+        lines.insert("\(key) = \(rawValue)", at: insertion)
+    }
+
+    private mutating func removeTableIfEmpty(_ table: String) {
+        let info = scan()
+        guard let header = info.firstIndex(where: { $0.kind == .header(table) }) else { return }
+        var end = header + 1
+        while end < info.count, !isHeader(info[end].kind) {
+            if info[end].kind != .blank { return }
+            end += 1
+        }
+        lines.removeSubrange(header..<end)
+        while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
+    }
+
     /// 删除 `[name]` 和所有 `[name.*]` 表，以及紧贴在前面的 `marker` 注释。
     public mutating func removeTable(_ name: String, marker: String? = nil) {
         while let start = firstTableIndex(matching: name) {
