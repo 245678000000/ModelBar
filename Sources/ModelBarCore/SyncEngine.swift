@@ -6,6 +6,7 @@ public struct AppState: Codable, Equatable, Sendable {
     public var enabledTools: [ToolID] = []
     public var originals: [ToolID: [String: String]] = [:]
     public var showModelInMenuBar = false
+    public var bridgeEnabled = false
 
     public init() {}
 
@@ -13,8 +14,18 @@ public struct AppState: Codable, Equatable, Sendable {
         endpoints.first { $0.id == activeEndpointID }
     }
 
+    /// Codex 已启用、当前接口只有 Chat，并且用户开启了本机转换。
+    public var needsBridge: Bool {
+        bridgeEnabled && enabledTools.contains(.codex) && activeEndpointNeedsConversion
+    }
+
+    public var activeEndpointNeedsConversion: Bool {
+        guard let probe = activeEndpoint?.probe else { return false }
+        return probe.responses == .failed && probe.chat != .failed
+    }
+
     private enum CodingKeys: String, CodingKey {
-        case endpoints, activeEndpointID, enabledTools, originals, showModelInMenuBar
+        case endpoints, activeEndpointID, enabledTools, originals, showModelInMenuBar, bridgeEnabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -24,6 +35,7 @@ public struct AppState: Codable, Equatable, Sendable {
         enabledTools = try container.decodeIfPresent([ToolID].self, forKey: .enabledTools) ?? []
         originals = try container.decodeIfPresent([ToolID: [String: String]].self, forKey: .originals) ?? [:]
         showModelInMenuBar = try container.decodeIfPresent(Bool.self, forKey: .showModelInMenuBar) ?? false
+        bridgeEnabled = try container.decodeIfPresent(Bool.self, forKey: .bridgeEnabled) ?? false
     }
 }
 
@@ -102,12 +114,19 @@ public actor SyncEngine {
     private let keyStore: any KeyStore
     private let adapters: [any ToolAdapter]
     private let backups: BackupStore
+    private let bridge: BridgeManager
 
-    public init(paths: AppPaths, keyStore: any KeyStore, adapters: [any ToolAdapter] = ToolCatalog.adapters) {
+    public init(
+        paths: AppPaths,
+        keyStore: any KeyStore,
+        adapters: [any ToolAdapter] = ToolCatalog.adapters,
+        bridge: BridgeManager? = nil
+    ) {
         self.paths = paths
         self.keyStore = keyStore
         self.adapters = adapters
         backups = BackupStore(directory: paths.backupsDirectory)
+        self.bridge = bridge ?? BridgeManager(paths: paths, executable: nil)
     }
 
     /// 把当前接口写入所有已启用的工具。
@@ -116,11 +135,12 @@ public actor SyncEngine {
         let enabled = adapters.filter { state.enabledTools.contains($0.id) }
 
         guard !enabled.isEmpty else {
+            bridge.stop()
             removeKeyFiles(except: nil)
             report.statuses = currentStatuses(state)
             return report
         }
-        guard let context = makeContext(state, report: &report) else {
+        guard var context = makeContext(state, report: &report) else {
             if report.statuses.isEmpty {
                 for adapter in enabled { report.statuses[adapter.id] = .noSelection }
             }
@@ -129,13 +149,27 @@ public actor SyncEngine {
         }
 
         var someToolKeepsOldEndpoint = false
+        var bridgeFailure: String?
+        if state.needsBridge {
+            do {
+                context.bridge = try bridge.prepare(endpoint: context.endpoint, keyFile: context.keyFile)
+            } catch {
+                bridgeFailure = error.localizedDescription
+            }
+        }
+
         for adapter in enabled {
             if !adapter.isInstalled(paths: paths) {
                 report.statuses[adapter.id] = .notInstalled
                 continue
             }
-            if let reason = adapter.incompatibility(with: context.endpoint) {
+            if let reason = adapter.incompatibility(with: context.endpoint, bridgeEnabled: state.bridgeEnabled) {
                 report.statuses[adapter.id] = .incompatible(reason)
+                someToolKeepsOldEndpoint = true
+                continue
+            }
+            if adapter.id == .codex, let bridgeFailure {
+                report.statuses[adapter.id] = .failed(bridgeFailure)
                 someToolKeepsOldEndpoint = true
                 continue
             }
@@ -154,8 +188,11 @@ public actor SyncEngine {
                 someToolKeepsOldEndpoint = true
             }
         }
-        // 没写入成功的工具还指向上一个接口，它的 Key 文件要留着。
-        if !someToolKeepsOldEndpoint { removeKeyFiles(except: context.keyFile) }
+        // 没写入成功的工具还指向上一个接口，它的 Key 文件要留着，转换服务也要继续运行。
+        if !someToolKeepsOldEndpoint {
+            removeKeyFiles(except: context.keyFile)
+            if !state.needsBridge { bridge.stop() }
+        }
         merge(currentStatuses(state), into: &report)
         return report
     }
@@ -168,6 +205,7 @@ public actor SyncEngine {
             try adapter.restore(paths: paths, backups: backups, originals: state.originals[tool] ?? [:])
             report.removedOriginals = [tool]
             report.statuses[tool] = adapter.isInstalled(paths: paths) ? .disabled : .notInstalled
+            if tool == .codex { bridge.stop() }
             if let note = adapter.reload(paths: paths) { report.notes.append(note) }
         } catch {
             report.statuses[tool] = .failed(error.localizedDescription)
@@ -187,15 +225,22 @@ public actor SyncEngine {
                 result[adapter.id] = .disabled
                 continue
             }
-            guard let context else {
+            guard var context else {
                 result[adapter.id] = .noSelection
                 continue
             }
-            if let reason = adapter.incompatibility(with: context.endpoint) {
+            if let reason = adapter.incompatibility(with: context.endpoint, bridgeEnabled: state.bridgeEnabled) {
                 result[adapter.id] = .incompatible(reason)
-            } else {
-                result[adapter.id] = adapter.isApplied(context) ? .synced : .stale
+                continue
             }
+            if adapter.id == .codex, state.needsBridge {
+                context.bridge = bridge.target()
+                if !bridge.isHealthy() {
+                    result[adapter.id] = .failed("本机转换服务没有运行，点“重新同步”可以重启")
+                    continue
+                }
+            }
+            result[adapter.id] = adapter.isApplied(context) ? .synced : .stale
         }
         return result
     }

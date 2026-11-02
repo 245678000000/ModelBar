@@ -677,6 +677,12 @@ private struct ToolSection: View {
                     Button("重新同步") { model.resync() }
                 }
             }
+            if case .failed = state {
+                HStack {
+                    Spacer()
+                    Button("重新同步") { model.resync() }
+                }
+            }
             notes
             if state == .notInstalled, let command = installCommand {
                 LabeledContent("安装命令") {
@@ -714,9 +720,34 @@ private struct ToolSection: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
         case .codex:
-            Text("Codex 只支持 Responses API。接口不支持时不会写入配置，也不会影响你现有的设置。")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            if !model.isBridgeActive {
+                Text("Codex 只支持 Responses API。接口不支持时不会写入配置，也不会影响你现有的设置。")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            if model.state.bridgeEnabled || model.canOfferBridge {
+                Toggle(isOn: Binding(
+                    get: { model.state.bridgeEnabled },
+                    set: { model.setBridge(enabled: $0) }
+                )) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("本机转换")
+                        Text("让 Codex 也能用只有 Chat 协议的接口。会运行一个只监听本机的后台服务，ModelBar 退出后继续运行，关闭后自动移除。联网搜索这类依赖 OpenAI 服务端的功能不可用。")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+                if model.isBridgeActive {
+                    HStack {
+                        Text("转换服务的日志不包含密钥和对话内容")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("查看日志") { model.reveal(model.paths.bridgeLog) }
+                    }
+                }
+            }
         case .kilo:
             VStack(alignment: .leading, spacing: 6) {
                 Text("在 Cursor 或 VS Code 的侧边栏使用，有自己的对话面板。切换后如未生效，请重载编辑器窗口。")

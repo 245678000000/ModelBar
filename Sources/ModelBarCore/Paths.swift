@@ -28,6 +28,12 @@ public struct AppPaths: Sendable {
         keysDirectory.appending(path: "\(id.uuidString).key")
     }
 
+    public var bridgeConfig: URL { support.appending(path: "bridge.json") }
+    public var bridgeToken: URL { keysDirectory.appending(path: "bridge.token") }
+    public var bridgeLog: URL { home.appending(path: "Library/Logs/ModelBar/bridge.log") }
+    public var bridgeLabel: String { isSandboxed ? "com.local.modelbar.bridge.sandbox" : "com.local.modelbar.bridge" }
+    public var bridgePlist: URL { home.appending(path: "Library/LaunchAgents/\(bridgeLabel).plist") }
+
     public var opencodeDirectory: URL { home.appending(path: ".config/opencode", directoryHint: .isDirectory) }
     public var kiloDirectory: URL { home.appending(path: ".config/kilo", directoryHint: .isDirectory) }
     public var codexDirectory: URL { home.appending(path: ".codex", directoryHint: .isDirectory) }

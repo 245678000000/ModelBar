@@ -356,6 +356,7 @@ private struct ToolRow: View {
     let openSettings: (SettingsPage?) -> Void
 
     private var state: ToolState { model.status(of: tool) }
+    private var isBridged: Bool { tool == .codex && model.isBridgeActive }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -381,11 +382,17 @@ private struct ToolRow: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         } else {
-            Text(state.detail ?? state.title)
+            Text(isBridged && state == .synced ? "已同步 · 本机转换" : state.detail ?? state.title)
                 .font(.system(size: 10.5))
                 .foregroundStyle(state.tint)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
+            if tool == .codex, model.canOfferBridge, model.isEnabled(.codex) {
+                Button("开启本机转换") { model.setBridge(enabled: true) }
+                    .buttonStyle(.link)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .help("运行一个只监听本机的后台服务，让 Codex 也能用这个接口")
+            }
         }
     }
 

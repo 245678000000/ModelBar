@@ -23,7 +23,7 @@
 | 工具 | 在哪里用 | 写入的配置 | 接口要求 |
 |---|---|---|---|
 | opencode | 终端 | `~/.config/opencode/opencode.json` | Chat Completions 或 Responses |
-| Codex CLI | 终端 | `~/.codex/config.toml` | 必须支持 Responses |
+| Codex CLI | 终端 | `~/.codex/config.toml` | Responses；只有 Chat 时需开启本机转换 |
 | Kilo Code | Cursor / VS Code 扩展 | `~/.config/kilo/kilo.json` | Chat Completions 或 Responses |
 
 其他工具（比如 Cline）可以在接口详情页拷贝 Base URL、模型名和 Key，手动填入。
@@ -31,10 +31,30 @@
 ## 限制
 
 - **Cursor 自带的 Agent 面板和 Tab 补全用不了这些接口。** 在 Cursor 里要用 Kilo Code 扩展的面板。
-- **接口不支持 Responses 时，Codex 用不了。** ModelBar 不会写入，Codex 保持原来的配置。
+- **接口只有 Chat 时，Codex 默认不会切换。** ModelBar 不写入配置，Codex 保持原样。需要时可以开启下面的本机转换。
 - **推理档位能否生效取决于服务商。** ModelBar 负责把 `reasoning_effort` 发出去。
 - **Kilo Code 还没有用真实扩展测试过。** 配置格式来自官方文档。
 - 其他也会改 `~/.codex/config.toml` 的工具可能和 ModelBar 互相覆盖。ModelBar 发现配置被改后会提示，不会自动改回去。
+
+## 本机转换
+
+Codex 只支持 Responses API，而很多接口只有 Chat。开启“本机转换”后，ModelBar 会运行一个后台服务：Codex 连接本机，服务把请求翻译成 Chat 发给接口，再把回复翻译回来。
+
+**怎么开启：** 接口只有 Chat 时，打开 Codex 的开关，面板里会出现“开启本机转换”。在“工具同步”页面也能开关。
+
+**运行方式：** 服务由系统的 launchd 托管，ModelBar 退出后继续运行，崩溃后自动重启。关闭转换、关闭 Codex 开关或切到支持 Responses 的接口时，服务会被移除，Codex 配置随之恢复或改回直连。
+
+**可用的功能：** 普通对话、流式输出、工具调用（包括执行命令）、多轮对话、推理档位、图片。
+
+**不可用的功能：** 联网搜索这类由 OpenAI 服务端执行的工具，翻译时会被去掉。
+
+**安全措施：**
+- 只监听 `127.0.0.1`，局域网访问不到。
+- 请求必须带本机访问令牌，令牌存在权限 0600 的文件里。
+- 校验 Host，防止网页通过 DNS 重绑定访问。
+- 日志只记录路径、状态和耗时，不记录密钥和对话内容，位置是 `~/Library/Logs/ModelBar/bridge.log`。
+
+**注意：** 目前只用真实的 Codex 和本地模拟接口测试过。真实服务商可能拒绝部分参数，比如 `stream_options`、`reasoning_effort`，遇到时 Codex 会显示接口返回的错误。
 
 ## 数据和安全
 
@@ -46,6 +66,10 @@
 - “测试连接”会发送两条极短的真实请求，可能产生极少量费用。除此之外，ModelBar 只在你操作时访问你填写的接口，不连接其他服务器。
 
 opencode 的后台服务不会自动读取新配置，所以切换时如果它正在运行，ModelBar 会重启它，进行中的会话可能被打断。
+
+## 卸载
+
+先在面板里关掉所有工具的开关，这会恢复它们原来的配置并移除转换服务。然后退出 ModelBar，把它移到废纸篓。
 
 ## 从源码构建
 

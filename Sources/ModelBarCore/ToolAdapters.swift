@@ -10,13 +10,23 @@ public struct SyncContext: Sendable {
     public var keyFile: URL?
     public var paths: AppPaths
     public var backups: BackupStore
+    /// 有值时，Codex 改连本机转换服务，而不是直接连接口。
+    public var bridge: BridgeTarget?
 
-    public init(endpoint: Endpoint, model: ModelInfo, keyFile: URL?, paths: AppPaths, backups: BackupStore) {
+    public init(
+        endpoint: Endpoint,
+        model: ModelInfo,
+        keyFile: URL?,
+        paths: AppPaths,
+        backups: BackupStore,
+        bridge: BridgeTarget? = nil
+    ) {
         self.endpoint = endpoint
         self.model = model
         self.keyFile = keyFile
         self.paths = paths
         self.backups = backups
+        self.bridge = bridge
     }
 }
 
@@ -29,7 +39,7 @@ public protocol ToolAdapter: Sendable {
     var id: ToolID { get }
     func isInstalled(paths: AppPaths) -> Bool
     func configFile(paths: AppPaths) -> URL
-    func incompatibility(with endpoint: Endpoint) -> String?
+    func incompatibility(with endpoint: Endpoint, bridgeEnabled: Bool) -> String?
     /// 写入配置。文件尚未被接管时返回需要保存的原值，否则返回 nil。
     func apply(_ context: SyncContext) throws -> [String: String]?
     func restore(paths: AppPaths, backups: BackupStore, originals: [String: String]) throws
@@ -40,6 +50,10 @@ public protocol ToolAdapter: Sendable {
 
 extension ToolAdapter {
     public func reload(paths: AppPaths) -> String? { nil }
+
+    public func incompatibility(with endpoint: Endpoint) -> String? {
+        incompatibility(with: endpoint, bridgeEnabled: false)
+    }
 }
 
 // MARK: - opencode / Kilo
@@ -77,7 +91,7 @@ public struct OpenCodeFamilyAdapter: ToolAdapter {
         paths.jsonConfig(in: directory(paths), baseName: baseName)
     }
 
-    public func incompatibility(with endpoint: Endpoint) -> String? {
+    public func incompatibility(with endpoint: Endpoint, bridgeEnabled: Bool) -> String? {
         if endpoint.probe?.chat == .failed, endpoint.probe?.responses == .failed {
             return "这个接口没有通过 Chat 和 Responses 测试"
         }
@@ -224,8 +238,10 @@ public struct CodexAdapter: ToolAdapter {
 
     public func configFile(paths: AppPaths) -> URL { paths.codexConfig }
 
-    public func incompatibility(with endpoint: Endpoint) -> String? {
-        endpoint.probe?.responses == .failed ? "这个接口不支持 Responses API，Codex 的配置保持不变" : nil
+    public func incompatibility(with endpoint: Endpoint, bridgeEnabled: Bool) -> String? {
+        guard endpoint.probe?.responses == .failed else { return nil }
+        if endpoint.probe?.chat == .failed { return "这个接口没有通过 Chat 和 Responses 测试，Codex 的配置保持不变" }
+        return bridgeEnabled ? nil : "这个接口不支持 Responses API，Codex 的配置保持不变"
     }
 
     public func apply(_ context: SyncContext) throws -> [String: String]? {
@@ -248,19 +264,20 @@ public struct CodexAdapter: ToolAdapter {
         document.setTopLevel("model_context_window", rawValue: context.model.contextLength.map(String.init))
 
         document.removeTable(Self.table, marker: Self.marker)
+        let displayName = context.bridge == nil ? "ModelBar · \(endpoint.name)" : "ModelBar · \(endpoint.name)（本机转换）"
         var block = [
             Self.marker,
             "[\(Self.table)]",
-            "name = \(TOMLDocument.quote("ModelBar · \(endpoint.name)"))",
-            "base_url = \(TOMLDocument.quote(endpoint.baseURL))",
+            "name = \(TOMLDocument.quote(displayName))",
+            "base_url = \(TOMLDocument.quote(context.bridge?.baseURL ?? endpoint.baseURL))",
             "wire_api = \"responses\"",
         ]
-        if let keyFile = context.keyFile {
+        if let credential = context.bridge?.tokenFile ?? context.keyFile {
             block += [
                 "",
                 "[\(Self.table).auth]",
                 "command = \"/bin/cat\"",
-                "args = [\(TOMLDocument.quote(keyFile.path))]",
+                "args = [\(TOMLDocument.quote(credential.path))]",
             ]
         }
         document.appendBlock(block)
@@ -290,7 +307,7 @@ public struct CodexAdapter: ToolAdapter {
         let document = TOMLDocument(text: text)
         return document.string(forKey: "model_provider") == ManagedName.provider
             && document.string(forKey: "model") == context.model.id
-            && document.string(forKey: "base_url", inTable: Self.table) == context.endpoint.baseURL
+            && document.string(forKey: "base_url", inTable: Self.table) == (context.bridge?.baseURL ?? context.endpoint.baseURL)
             && document.string(forKey: "model_reasoning_effort") == context.endpoint.effort.wireValue
     }
 

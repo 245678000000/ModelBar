@@ -4,17 +4,18 @@ set -euo pipefail
 ROOT="${0:A:h}/.."
 cd "$ROOT"
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 APP="dist/ModelBar.app"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 swift build -c release --product ModelBar
-BIN="$(swift build -c release --show-bin-path)/ModelBar"
+swift build -c release --product ModelBarGateway
+BIN_DIR="$(swift build -c release --show-bin-path)"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN" "$APP/Contents/MacOS/ModelBar"
+cp "$BIN_DIR/ModelBar" "$BIN_DIR/ModelBarGateway" "$APP/Contents/MacOS/"
 
 swiftc scripts/make-icon.swift -o "$WORK/make-icon"
 "$WORK/make-icon" "$WORK/AppIcon.iconset"
@@ -34,7 +35,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>ModelBar</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleVersion</key><string>2</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
@@ -44,5 +45,6 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
+codesign --force --sign - "$APP/Contents/MacOS/ModelBarGateway"
 codesign --force --sign - "$APP"
 echo "已生成 $PWD/$APP"

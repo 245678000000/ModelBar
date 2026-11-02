@@ -4,11 +4,19 @@ import PackageDescription
 let package = Package(
     name: "ModelBar",
     platforms: [.macOS(.v14)],
-    products: [.executable(name: "ModelBar", targets: ["ModelBar"])],
+    products: [
+        .executable(name: "ModelBar", targets: ["ModelBar"]),
+        .executable(name: "ModelBarGateway", targets: ["ModelBarGateway"]),
+    ],
     targets: [
         .target(name: "ModelBarCore", swiftSettings: [.swiftLanguageMode(.v5)]),
         .executableTarget(
             name: "ModelBar",
+            dependencies: ["ModelBarCore"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .executableTarget(
+            name: "ModelBarGateway",
             dependencies: ["ModelBarCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

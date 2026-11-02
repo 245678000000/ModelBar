@@ -47,7 +47,8 @@ final class AppModel {
         keyStore = paths.isSandboxed
             ? SandboxFileKeyStore(directory: paths.support.appending(path: "sandbox-keys", directoryHint: .isDirectory))
             : KeychainStore()
-        engine = SyncEngine(paths: paths, keyStore: keyStore)
+        let gateway = Bundle.main.executableURL?.deletingLastPathComponent().appending(path: "ModelBarGateway")
+        engine = SyncEngine(paths: paths, keyStore: keyStore, bridge: BridgeManager(paths: paths, executable: gateway))
         store = StateStore(file: paths.stateFile)
         do {
             state = try store.load()
@@ -144,6 +145,27 @@ final class AppModel {
 
     func resync() {
         syncNow()
+    }
+
+    // MARK: 本机转换
+
+    /// 当前接口只有 Chat，用户还没开启转换，可以提示开启。
+    var canOfferBridge: Bool {
+        !state.bridgeEnabled && state.activeEndpointNeedsConversion
+    }
+
+    var isBridgeActive: Bool { state.needsBridge }
+
+    func setBridge(enabled: Bool) {
+        guard state.bridgeEnabled != enabled else { return }
+        state.bridgeEnabled = enabled
+        if enabled {
+            syncNow()
+        } else {
+            persist()
+            // Codex 可能正连着转换服务，要先恢复它原来的配置。
+            Task { await disable(.codex) }
+        }
     }
 
     // MARK: 接口管理
