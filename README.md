@@ -54,7 +54,11 @@ Codex 只支持 Responses API，而很多接口只有 Chat。开启“本机转�
 - 校验 Host，防止网页通过 DNS 重绑定访问。
 - 日志只记录路径、状态和耗时，不记录密钥和对话内容，位置是 `~/Library/Logs/ModelBar/bridge.log`。
 
-**注意：** 目前只用真实的 Codex 和本地模拟接口测试过。真实服务商可能拒绝部分参数，比如 `stream_options`、`reasoning_effort`，遇到时 Codex 会显示接口返回的错误。
+**测试情况：** 已用真实的 Codex 和一个真实的 Chat 接口跑通普通对话和工具调用。其他服务商可能拒绝部分参数，比如 `stream_options`、`reasoning_effort`，遇到时 Codex 会显示接口返回的错误。图片目前只有单元测试。
+
+**模型要求：** 模型必须支持工具调用，否则 Codex 能聊天但不能执行命令。
+
+**启动时的提示：** Codex 可能显示找不到模型元数据（`Model metadata ... not found`），这是因为它不认识这个模型，会改用默认设置。
 
 ## 数据和安全
 

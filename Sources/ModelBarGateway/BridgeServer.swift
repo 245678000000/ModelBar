@@ -84,7 +84,9 @@ final class BridgeServer: @unchecked Sendable {
         case ("POST", "/v1/responses"):
             return await handleResponses(request, config: config, client: client)
         case ("GET", "/v1/models"):
-            return await forwardModels(config: config, client: client)
+            // Codex 要的是它自己的模型目录格式，转发上游只会解析失败。回空列表，它会用默认设置。
+            await client.respondJSON(status: 200, object: ["models": [Any]()])
+            return 200
         default:
             await client.respondJSON(status: 404, error: "转换服务不支持这个路径")
             return 404
@@ -117,21 +119,6 @@ final class BridgeServer: @unchecked Sendable {
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         }
         return request
-    }
-
-    // MARK: /v1/models
-
-    private func forwardModels(config: BridgeConfig, client: BridgeClient) async -> Int {
-        do {
-            let request = try upstreamRequest(path: "/models", config: config)
-            let (data, response) = try await session.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 502
-            await client.respond(status: status, contentType: "application/json", body: data)
-            return status
-        } catch {
-            await client.respondJSON(status: 502, error: "无法连接上游接口：\(error.localizedDescription)")
-            return 502
-        }
     }
 
     // MARK: /v1/responses

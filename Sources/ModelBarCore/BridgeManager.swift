@@ -4,7 +4,7 @@ import Security
 
 public enum BridgeInfo {
     /// 转换服务和应用的协议版本。应用更新后如果版本不同，会重启服务。
-    public static let version = 1
+    public static let version = 2
     public static let defaultPort = 47631
     public static let portSearchRange = 20
 }
