@@ -58,8 +58,42 @@ public struct AppPaths: Sendable {
     public var binaryDirectories: [URL] {
         [
             ".opencode/bin", ".grok/bin", ".local/bin", ".npm-global/bin", ".bun/bin", ".cargo/bin",
+            ".volta/bin", ".asdf/shims", ".local/share/mise/shims", ".yarn/bin", "Library/pnpm", ".local/share/pnpm",
         ].map { home.appending(path: $0, directoryHint: .isDirectory) }
+            + npmPrefixBinDirectories
+            + nodeVersionBinDirectories
             + ["/opt/homebrew/bin", "/usr/local/bin"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+    }
+
+    /// `npm config set prefix` 写在 ~/.npmrc 里，全局命令装在它的 bin 目录。
+    private var npmPrefixBinDirectories: [URL] {
+        guard let text = try? String(contentsOf: home.appending(path: ".npmrc"), encoding: .utf8) else { return [] }
+        for line in text.split(whereSeparator: \.isNewline) {
+            let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            guard parts.count == 2, parts[0] == "prefix" else { continue }
+            var value = parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            for variable in ["${HOME}", "$HOME"] {
+                value = value.replacingOccurrences(of: variable, with: home.path)
+            }
+            if value.hasPrefix("~/") { value = home.path + value.dropFirst() }
+            guard value.hasPrefix("/") else { return [] }
+            return [URL(fileURLWithPath: value, isDirectory: true).appending(path: "bin", directoryHint: .isDirectory)]
+        }
+        return []
+    }
+
+    /// nvm 和 fnm 把全局命令装在各 Node 版本自己的目录里，版本号不固定，只能列出来。
+    private var nodeVersionBinDirectories: [URL] {
+        [
+            (".nvm/versions/node", "bin"),
+            (".fnm/node-versions", "installation/bin"),
+            (".local/share/fnm/node-versions", "installation/bin"),
+            ("Library/Application Support/fnm/node-versions", "installation/bin"),
+        ].flatMap { root, suffix in
+            let directory = home.appending(path: root, directoryHint: .isDirectory)
+            let versions = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+            return versions.map { $0.appending(path: suffix, directoryHint: .isDirectory) }
+        }
     }
 
     public func findBinary(_ name: String) -> URL? {

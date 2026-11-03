@@ -538,3 +538,78 @@ private func context(_ paths: AppPaths, effort: ReasoningEffort = .high, bridge:
         #expect(try BridgeConfig.load(from: paths.bridgeConfig).defaultEffort == "high")
     }
 }
+
+@Suite struct FindBinaryTests {
+    private let tool = "modelbar-test-tool"
+
+    @discardableResult
+    private func install(_ name: String, in directory: URL, permissions: Int = 0o755) throws -> URL {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appending(path: name)
+        try "#!/bin/sh\n".write(to: file, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: file.path)
+        return file
+    }
+
+    @Test(arguments: [
+        ".nvm/versions/node/v22.11.0/bin",
+        ".fnm/node-versions/v22.11.0/installation/bin",
+        ".local/share/fnm/node-versions/v22.11.0/installation/bin",
+        "Library/Application Support/fnm/node-versions/v22.11.0/installation/bin",
+        ".volta/bin",
+        ".asdf/shims",
+        ".local/share/mise/shims",
+        ".yarn/bin",
+        "Library/pnpm",
+        ".local/share/pnpm",
+    ])
+    func findsToolsFromVersionManagers(directory: String) throws {
+        let paths = try makeHome()
+        let file = try install(tool, in: paths.home.appending(path: directory, directoryHint: .isDirectory))
+        // 临时目录在 /var 下，列目录得到的路径会解析成 /private/var。
+        #expect(paths.findBinary(tool)?.resolvingSymlinksInPath().path == file.resolvingSymlinksInPath().path)
+    }
+
+    @Test(arguments: [
+        "prefix=~/.custom-npm",
+        "prefix = ~/.custom-npm",
+        "prefix=\"~/.custom-npm\"",
+        "registry=https://example.com/\nprefix=${HOME}/.custom-npm",
+        "prefix=$HOME/.custom-npm",
+    ])
+    func findsToolsUnderTheNpmPrefix(npmrc: String) throws {
+        let paths = try makeHome()
+        try npmrc.write(to: paths.home.appending(path: ".npmrc"), atomically: true, encoding: .utf8)
+        let file = try install(tool, in: paths.home.appending(path: ".custom-npm/bin", directoryHint: .isDirectory))
+        #expect(paths.findBinary(tool)?.path == file.path)
+    }
+
+    @Test func findsToolsUnderAnAbsoluteNpmPrefix() throws {
+        let paths = try makeHome()
+        let prefix = paths.home.appending(path: "absolute prefix", directoryHint: .isDirectory)
+        try "prefix=\(prefix.path)".write(to: paths.home.appending(path: ".npmrc"), atomically: true, encoding: .utf8)
+        let file = try install(tool, in: prefix.appending(path: "bin", directoryHint: .isDirectory))
+        #expect(paths.findBinary(tool)?.path == file.path)
+    }
+
+    @Test func ignoresCommentedAndRelativeNpmPrefixes() throws {
+        let paths = try makeHome()
+        try "#prefix=~/.custom-npm\n;prefix=~/.custom-npm\nprefix=relative"
+            .write(to: paths.home.appending(path: ".npmrc"), atomically: true, encoding: .utf8)
+        try install(tool, in: paths.home.appending(path: ".custom-npm/bin", directoryHint: .isDirectory))
+        #expect(paths.findBinary(tool) == nil)
+    }
+
+    @Test func ignoresFilesThatAreNotExecutable() throws {
+        let paths = try makeHome()
+        let directory = paths.home.appending(path: ".nvm/versions/node/v22.11.0/bin", directoryHint: .isDirectory)
+        try install(tool, in: directory, permissions: 0o644)
+        #expect(paths.findBinary(tool) == nil)
+    }
+
+    @Test func toolInstalledThroughNvmCountsAsInstalled() throws {
+        let paths = try makeHome()
+        try install("pi", in: paths.home.appending(path: ".nvm/versions/node/v22.11.0/bin", directoryHint: .isDirectory))
+        #expect(PiAdapter().isInstalled(paths: paths))
+    }
+}
