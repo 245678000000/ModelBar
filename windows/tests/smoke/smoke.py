@@ -116,6 +116,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.flush()
 
 
+class QuietServer(http.server.ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        # 客户端用完连接直接断开很常见，不是错误。
+        if not isinstance(sys.exc_info()[1], ConnectionError):
+            super().handle_error(request, client_address)
+
+
 def kill_tree(process):
     if os.name == "nt":
         subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True)
@@ -159,7 +166,7 @@ def main():
     work = home / "work"
     work.mkdir()
 
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = QuietServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{server.server_address[1]}/v1"
 

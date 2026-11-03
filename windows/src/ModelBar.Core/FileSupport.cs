@@ -115,7 +115,8 @@ public sealed class BackupStore(string directory, int limit = 10)
     public string? Backup(string file, string label, DateTimeOffset? now = null)
     {
         if (!File.Exists(file)) return null;
-        var stamp = (now ?? DateTimeOffset.Now).ToString("yyyyMMdd-HHmmss-fff");
+        // 文件名要能按时间排序，不能跟随系统的日历和语言。
+        var stamp = (now ?? DateTimeOffset.Now).ToString("yyyyMMdd-HHmmss-fff", System.Globalization.CultureInfo.InvariantCulture);
         var target = Path.Combine(directory, $"{label}-{stamp}-{Path.GetFileName(file)}");
         FileSupport.WritePrivate(target, File.ReadAllBytes(file));
         foreach (var old in Backups(label).SkipLast(limit)) File.Delete(old);

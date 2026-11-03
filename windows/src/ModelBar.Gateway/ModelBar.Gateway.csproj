@@ -3,6 +3,8 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>ModelBarGateway</AssemblyName>
+    <!-- 只有转换服务能开：WPF 的字体系统需要语言数据，开了窗口一显示文字就崩溃。 -->
+    <InvariantGlobalization>true</InvariantGlobalization>
     <PublishTrimmed>true</PublishTrimmed>
     <TrimMode>full</TrimMode>
     <PublishSingleFile>true</PublishSingleFile>
