@@ -4,6 +4,10 @@
 
 不修改任何工具的程序文件，只写它们公开的配置文件，所以工具更新不会影响使用。
 
+## 截图
+
+<img src="../docs/screenshots/windows-panel.png" alt="面板" width="300"> <img src="../docs/screenshots/windows-settings.png" alt="工具同步" width="500">
+
 ## 安装
 
 解压 `ModelBar-win-x64.zip`（ARM 电脑用 `ModelBar-win-arm64.zip`），运行 `ModelBar.exe`。不需要安装 .NET，也不需要管理员权限。

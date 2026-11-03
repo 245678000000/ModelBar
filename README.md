@@ -6,6 +6,23 @@
 
 Windows 版在 [windows](windows/README.md) 目录。
 
+## 截图
+
+<table>
+  <tr>
+    <th>Mac</th>
+    <th>Windows</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/screenshots/mac-panel.png" alt="Mac 版面板" width="300"></td>
+    <td valign="top"><img src="docs/screenshots/windows-panel.png" alt="Windows 版面板" width="300"></td>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/screenshots/mac-settings.png" alt="Mac 版接口详情" width="400"></td>
+    <td valign="top"><img src="docs/screenshots/windows-settings.png" alt="Windows 版工具同步" width="400"></td>
+  </tr>
+</table>
+
 ## 安装
 
 运行 `./scripts/package-dmg.sh` 生成 `dist/ModelBar.dmg`，把里面的 ModelBar 拖进“应用程序”，然后打开。它只出现在菜单栏，不占程序坞。
