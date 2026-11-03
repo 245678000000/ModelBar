@@ -44,6 +44,12 @@ final class DevDriver {
             settings.show(page: page(named: argument))
         case "snap":
             snapshot(window(named: arguments[0]), name: arguments[1])
+        case "snap-shadow":
+            guard arguments.count >= 2 else {
+                print("dev> usage: snap-shadow <window> <name>")
+                return
+            }
+            snapshot(window(named: arguments[0]), name: arguments[1], includingShadow: true)
         case "click":
             click(window(named: arguments[0]), x: Double(arguments[1]) ?? 0, y: Double(arguments[2]) ?? 0)
         case "type":
@@ -141,14 +147,15 @@ final class DevDriver {
     }
 
     /// 窗口服务器合成的画面更接近真实效果，取不到时退回视图缓存。
-    private func snapshot(_ window: NSWindow?, name: String) {
+    private func snapshot(_ window: NSWindow?, name: String, includingShadow: Bool = false) {
         guard let window else {
             print("dev> no window for \(name)")
             return
         }
         try? FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let url = output.appending(path: "\(name).png")
-        let rep = composited(window) ?? cached(window)
+        // 视图缓存不含阴影，要阴影时宁可失败，也不输出一张看不出问题的图。
+        let rep = composited(window, includingShadow: includingShadow) ?? (includingShadow ? nil : cached(window))
         guard let rep, let data = rep.representation(using: .png, properties: [:]) else {
             print("dev> snapshot failed \(name)")
             return
@@ -157,12 +164,12 @@ final class DevDriver {
         print("dev> wrote \(url.lastPathComponent) \(rep.pixelsWide)x\(rep.pixelsHigh)")
     }
 
-    private func composited(_ window: NSWindow) -> NSBitmapImageRep? {
+    private func composited(_ window: NSWindow, includingShadow: Bool) -> NSBitmapImageRep? {
         typealias Capture = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
         let capture = unsafeBitCast(symbol, to: Capture.self)
-        // kCGWindowListOptionIncludingWindow = 8, kCGWindowImageBoundsIgnoreFraming = 1
-        guard let image = capture(.null, 8, UInt32(window.windowNumber), 1)?.takeRetainedValue() else { return nil }
+        // kCGWindowListOptionIncludingWindow = 8, kCGWindowImageDefault = 0（含阴影）, kCGWindowImageBoundsIgnoreFraming = 1
+        guard let image = capture(.null, 8, UInt32(window.windowNumber), includingShadow ? 0 : 1)?.takeRetainedValue() else { return nil }
         return NSBitmapImageRep(cgImage: image)
     }
 
