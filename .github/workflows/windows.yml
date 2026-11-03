@@ -44,7 +44,7 @@ jobs:
           Get-ChildItem dist/ModelBar | Format-Table Name, Length
 
       - name: Install real agents
-        run: npm install -g @openai/codex opencode-ai @anthropic-ai/claude-code @earendil-works/pi-coding-agent
+        run: npm install -g @openai/codex opencode-ai @anthropic-ai/claude-code @earendil-works/pi-coding-agent @kilocode/cli
 
       - name: End-to-end test with real agents
         timeout-minutes: 15

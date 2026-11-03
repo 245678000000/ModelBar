@@ -45,22 +45,16 @@ internal static class DevSnapshot
 
     private static async Task Pause() => await Task.Delay(800);
 
+    /// <summary>直接渲染窗口的根元素。VisualBrush 按内容边界缩放，会丢掉边距，看不准。</summary>
     private static void Save(Window window, string directory, string name)
     {
         var scale = VisualTreeHelper.GetDpi(window);
-        var content = (FrameworkElement)window.Content;
-        var width = Math.Max(1, (int)(content.ActualWidth * 2 * scale.DpiScaleX));
-        var height = Math.Max(1, (int)(content.ActualHeight * 2 * scale.DpiScaleY));
+        var root = (FrameworkElement)VisualTreeHelper.GetChild(window, 0);
+        root.UpdateLayout();
+        var width = Math.Max(1, (int)(root.ActualWidth * 2 * scale.DpiScaleX));
+        var height = Math.Max(1, (int)(root.ActualHeight * 2 * scale.DpiScaleY));
         var bitmap = new RenderTargetBitmap(width, height, 192 * scale.DpiScaleX, 192 * scale.DpiScaleY, PixelFormats.Pbgra32);
-
-        // RenderTargetBitmap 不画窗口背景，先铺一层。
-        var visual = new DrawingVisual();
-        using (var context = visual.RenderOpen())
-        {
-            context.DrawRectangle(window.Background ?? Brushes.White, null, new Rect(0, 0, content.ActualWidth, content.ActualHeight));
-            context.DrawRectangle(new VisualBrush(content), null, new Rect(0, 0, content.ActualWidth, content.ActualHeight));
-        }
-        bitmap.Render(visual);
+        bitmap.Render(root);
 
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));

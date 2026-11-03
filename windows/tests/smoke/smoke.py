@@ -161,7 +161,7 @@ def main():
     sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     cli, gateway = sys.argv[1], str(pathlib.Path(sys.argv[2]).resolve())
-    wanted = sys.argv[3:] or ["ClaudeCode", "Codex", "OpenCode", "Pi"]
+    wanted = sys.argv[3:] or ["ClaudeCode", "Codex", "OpenCode", "Pi", "Kilo"]
     home = pathlib.Path(tempfile.mkdtemp(prefix="modelbar smoke "))
     work = home / "work"
     work.mkdir()
@@ -200,10 +200,16 @@ def main():
     def path_of(name):
         return shutil.which(name, path=environ.get("PATH")) or name
 
+    # 不同渠道的 opencode 版本不同，只有部分版本需要 --standalone。
+    opencode_flags = []
+    if "OpenCode" in wanted and "--standalone" in run([path_of("opencode"), "run", "--help"], tool_env, timeout=60)[1]:
+        opencode_flags = ["--standalone"]
+
     commands = {
         "ClaudeCode": lambda prompt, tool: [path_of("claude"), "-p", prompt, *(["--allowedTools", "Bash"] if tool else [])],
         "Codex": lambda prompt, tool: [path_of("codex"), "exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only", prompt],
-        "OpenCode": lambda prompt, tool: [path_of("opencode"), "run", "--standalone", *(["--auto"] if tool else []), prompt],
+        "OpenCode": lambda prompt, tool: [path_of("opencode"), "run", *opencode_flags, *(["--auto"] if tool else []), prompt],
+        "Kilo": lambda prompt, tool: [path_of("kilo"), "run", *(["--auto"] if tool else []), prompt],
         "Pi": lambda prompt, tool: [path_of("pi"), "-p", prompt],
         "Grok": lambda prompt, tool: [path_of("grok"), "-p", prompt, *(["--always-approve"] if tool else [])],
     }
