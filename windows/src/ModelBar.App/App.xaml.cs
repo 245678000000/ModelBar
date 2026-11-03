@@ -15,11 +15,59 @@ public partial class App : Application
     private PanelWindow? _panel;
     private SettingsWindow? _settings;
     private System.Windows.Forms.NotifyIcon? _tray;
+    private string _crashLog = "";
+    private bool _isSnapshot;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
         var paths = AppPaths.Current();
+        _crashLog = Path.Combine(paths.LogsDirectory, "crash.log");
+        _isSnapshot = Array.IndexOf(e.Args, "--dev-snapshot") >= 0;
+        DispatcherUnhandledException += (_, args) =>
+        {
+            args.Handled = true;
+            ReportCrash(args.Exception);
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, args) => ReportCrash(args.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            args.SetObserved();
+            WriteCrashLog(args.Exception);
+        };
+
+        try
+        {
+            await StartAsync(e, paths);
+        }
+        catch (Exception error)
+        {
+            ReportCrash(error);
+        }
+    }
+
+    private void WriteCrashLog(Exception? error)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(_crashLog)!);
+            File.AppendAllText(_crashLog, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{error}\n\n");
+        }
+        catch (IOException)
+        {
+        }
+    }
+
+    /// <summary>界面出错时记下来并告诉用户，而不是一声不响地退出。</summary>
+    private void ReportCrash(Exception? error)
+    {
+        WriteCrashLog(error);
+        if (_isSnapshot) Environment.Exit(3);
+        MessageBox.Show($"ModelBar 出错了：{error?.Message}\n\n详情在 {_crashLog}", "ModelBar", MessageBoxButton.OK, MessageBoxImage.Error);
+    }
+
+    private async Task StartAsync(StartupEventArgs e, AppPaths paths)
+    {
 
         if (!paths.IsSandboxed)
         {

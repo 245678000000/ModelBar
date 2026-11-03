@@ -132,6 +132,9 @@ def which(name):
 
 
 def main():
+    # Windows 控制台默认不是 UTF-8，打印中文会报错。
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     cli, gateway = sys.argv[1], str(pathlib.Path(sys.argv[2]).resolve())
     wanted = sys.argv[3:] or ["ClaudeCode", "Codex", "OpenCode", "Pi"]
     home = pathlib.Path(tempfile.mkdtemp(prefix="modelbar smoke "))

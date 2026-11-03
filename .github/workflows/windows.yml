@@ -57,9 +57,18 @@ jobs:
           dotnet build src/ModelBar.App -c Release -p:DefineConstants=DEVSNAPSHOT -o snapshot-build
           python tests/smoke/seed_screens.py "$env:RUNNER_TEMP/screens-home"
           $env:MODELBAR_HOME = "$env:RUNNER_TEMP/screens-home"
-          $process = Start-Process snapshot-build/ModelBar.exe -ArgumentList "--dev-snapshot", "screenshots" -PassThru
-          if (-not $process.WaitForExit(120000)) { Stop-Process $process -Force; throw "snapshot timed out" }
+          New-Item -ItemType Directory -Force screenshots | Out-Null
+          $output = Join-Path $PWD "screenshots"
+          $process = Start-Process snapshot-build/ModelBar.exe -ArgumentList "--dev-snapshot", "`"$output`"" -PassThru
+          $null = $process.Handle
+          $finished = $process.WaitForExit(120000)
+          if (-not $finished) { Stop-Process $process -Force }
+          "exit code: $($process.ExitCode)"
+          $crash = "$env:RUNNER_TEMP/screens-home/AppData/Roaming/ModelBar/logs/crash.log"
+          if (Test-Path $crash) { Get-Content $crash; Copy-Item $crash screenshots/crash.log }
           Get-ChildItem screenshots | Format-Table Name, Length
+          $count = (Get-ChildItem screenshots -Filter *.png | Measure-Object).Count
+          if ($count -lt 10) { throw "expected 10 screenshots, got $count" }
 
       - uses: actions/upload-artifact@v4
         if: always()
