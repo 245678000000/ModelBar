@@ -5,10 +5,12 @@ cd "${0:A:h}/.."
 
 ./scripts/build-app.sh
 
-# 应用内更新靠证书确认新版的来源，临时签名的版本发布出去就没法再自动更新了。
-SIGNATURE="$(codesign -dvv dist/ModelBar.app 2>&1)"
-if [[ "$SIGNATURE" != *$'\nAuthority=ModelBar Local Signing\n'* ]]; then
-  echo "错误：没有用固定证书签名，请先运行 ./scripts/make-signing-cert.sh" >&2
+# 已安装的版本只接受这一张证书，同名的新证书也不行，用错了发布出去用户就更新不了。
+RELEASE_CERT="ab49b631a17d391674c28ad5ae9d1f82f135ecc7"
+REQUIREMENT="$(codesign -d -r- dist/ModelBar.app 2>&1)"
+if [[ "$REQUIREMENT" != *"certificate leaf = H\"$RELEASE_CERT\""* ]]; then
+  echo "错误：签名证书不是发布用的那张，已安装的版本不会接受这个包。" >&2
+  echo "确实要换证书时，请修改这个脚本里的 RELEASE_CERT，并告知用户要手动安装一次。" >&2
   exit 1
 fi
 

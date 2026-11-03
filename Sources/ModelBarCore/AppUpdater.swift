@@ -213,10 +213,16 @@ public struct UpdateInstaller: Sendable {
     /// 等旧版退出后打开新版。新版没能运行起来就换回旧版。
     private static let relaunchScript = #"""
     pid=$1 app=$2 backup=$3 executable=$4
+    restore() {
+      /bin/rm -rf "$app" && /bin/mv "$backup" "$app"
+    }
     tries=0
     while kill -0 "$pid" 2>/dev/null; do
       tries=$((tries + 1))
-      [ "$tries" -ge 150 ] && exit 1
+      if [ "$tries" -ge 150 ]; then
+        restore
+        exit 1
+      fi
       sleep 0.2
     done
     launch() {
@@ -228,7 +234,7 @@ public struct UpdateInstaller: Sendable {
     if /bin/ps -axo command= | /usr/bin/grep -Fxq "$app/Contents/MacOS/$executable"; then
       /bin/rm -rf "$backup"
     else
-      /bin/rm -rf "$app" && /bin/mv "$backup" "$app" && launch
+      restore && launch
     fi
     """#
 
@@ -334,10 +340,16 @@ public struct UpdateInstaller: Sendable {
         return backup
     }
 
-    /// 换好新版并安排重启，调用方接下来应该退出应用。
-    public func install(_ update: AppUpdate) async throws {
+    /// 换好新版并安排重启，调用方接下来应该退出应用。beforeSwap 抛错时不替换，旧版不变。
+    public func install(_ update: AppUpdate, beforeSwap: @Sendable () async throws -> Void = {}) async throws {
         let staged = try await prepare(update)
         let manager = FileManager.default
+        do {
+            try await beforeSwap()
+        } catch {
+            try? manager.removeItem(at: staged)
+            throw error
+        }
         let executable = Bundle(url: staged)?.infoDictionary?["CFBundleExecutable"] as? String ?? appBundle.deletingPathExtension().lastPathComponent
         let backup: URL
         do {

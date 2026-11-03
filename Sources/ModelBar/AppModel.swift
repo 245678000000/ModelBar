@@ -432,9 +432,9 @@ final class AppModel {
         updateTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(5))
             await self?.runScheduledUpdateCheck()
-            // 重启脚本可能还要用旧版回退，等它结束后再清理。
+            // 重启脚本可能还要用旧版回退，等它结束后再清理。正在安装时不清理，下次启动再说。
             try? await Task.sleep(for: .seconds(60))
-            self?.updateInstaller?.removeLeftovers()
+            if self?.isInstallingUpdate == false { self?.updateInstaller?.removeLeftovers() }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(24 * 60 * 60))
                 await self?.runScheduledUpdateCheck()
@@ -456,11 +456,10 @@ final class AppModel {
               !isCheckingForUpdates, !isInstallingUpdate else { return }
         isCheckingForUpdates = true
         defer { isCheckingForUpdates = false }
-        if manual { updateMessage = nil }
         do {
             let checker = UpdateChecker(feedURL: feed, allowsAnyHost: paths.isSandboxed, transport: URLSessionUpdateTransport())
             availableUpdate = try await checker.latest(newerThan: current)
-            if manual, availableUpdate == nil { updateMessage = "已是最新版本" }
+            updateMessage = manual && availableUpdate == nil ? "已是最新版本" : nil
         } catch {
             if manual { updateMessage = "检查更新失败：\(error.localizedDescription)" }
         }
@@ -472,10 +471,8 @@ final class AppModel {
         updateMessage = nil
         Task {
             do {
-                try await installer.install(update)
-                // 不打断正在写工具配置的同步。重启脚本最多等 30 秒。
-                for _ in 0..<100 where isSyncing {
-                    try? await Task.sleep(for: .milliseconds(100))
+                try await installer.install(update) { [weak self] in
+                    try await self?.waitForSyncToFinish()
                 }
                 NSApp.terminate(nil)
                 // 设置窗口里开着表单时系统会拒绝退出，这时新版已经换好，不能停在这里。
@@ -486,6 +483,15 @@ final class AppModel {
                 show(.error, "更新失败，旧版本没有变化：\(error.localizedDescription)")
             }
         }
+    }
+
+    /// 退出会打断正在写工具配置的同步，所以等它结束后才替换。等不到就放弃，旧版不变。
+    private func waitForSyncToFinish() async throws {
+        for _ in 0..<600 {
+            if !isSyncing { return }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        throw UpdateError("工具配置还在同步，请稍后再试")
     }
 
     func openUpdatePage() {

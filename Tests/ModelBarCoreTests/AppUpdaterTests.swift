@@ -298,6 +298,14 @@ private struct RejectAll: UpdateVerifier {
         #expect(throws: UpdateError.self) { try installer.checkCanInstall() }
     }
 
+    @Test func failureBeforeSwappingRemovesTheStagedCopyAndKeepsTheOldVersion() async throws {
+        let setup = try setup()
+        await #expect(throws: UpdateError.self) {
+            try await installer(setup).install(setup.update) { throw UpdateError("同步没结束") }
+        }
+        try expectUntouched(setup)
+    }
+
     @Test func swapInPutsTheNewVersionInPlaceAndKeepsTheOldOne() async throws {
         let setup = try setup()
         let installer = installer(setup)
