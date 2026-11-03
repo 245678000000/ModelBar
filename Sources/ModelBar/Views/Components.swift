@@ -1,41 +1,67 @@
 import SwiftUI
 import ModelBarCore
 
-/// 接口的彩色图标，颜色由名称决定，同一个接口始终同色。
+/// 接口的图标：有官方图标时放在白底上，否则用名称的第一个字。
 struct EndpointGlyph: View {
     let name: String
+    var host: String? = nil
+    /// 列表里由 AppModel 分配，避免撞色。
+    var colorIndex: Int? = nil
     var size: CGFloat = 28
 
-    private static let palettes: [(Color, Color)] = [
-        (Color(red: 0.36, green: 0.55, blue: 1.00), Color(red: 0.20, green: 0.36, blue: 0.90)),
-        (Color(red: 0.25, green: 0.78, blue: 0.72), Color(red: 0.08, green: 0.56, blue: 0.56)),
-        (Color(red: 1.00, green: 0.62, blue: 0.30), Color(red: 0.93, green: 0.40, blue: 0.16)),
-        (Color(red: 0.98, green: 0.45, blue: 0.56), Color(red: 0.84, green: 0.22, blue: 0.40)),
-        (Color(red: 0.42, green: 0.80, blue: 0.42), Color(red: 0.18, green: 0.58, blue: 0.30)),
-        (Color(red: 0.64, green: 0.56, blue: 0.98), Color(red: 0.42, green: 0.33, blue: 0.84)),
-        (Color(red: 0.50, green: 0.53, blue: 0.60), Color(red: 0.30, green: 0.32, blue: 0.38)),
-    ]
+    @Environment(\.colorScheme) private var colorScheme
+
+    @MainActor private static var logos: [String: NSImage] = [:]
+
+    @MainActor private static func image(for logo: String) -> NSImage? {
+        if let image = logos[logo] { return image }
+        guard let url = Bundle.main.url(forResource: logo, withExtension: "png", subdirectory: "Logos"),
+              let image = NSImage(contentsOf: url) else { return nil }
+        logos[logo] = image
+        return image
+    }
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
+    }
 
     var body: some View {
-        let colors = Self.palettes[Self.index(for: name)]
-        RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
-            .fill(LinearGradient(colors: [colors.0, colors.1], startPoint: .top, endPoint: .bottom))
-            .overlay {
-                RoundedRectangle(cornerRadius: size * 0.27, style: .continuous)
-                    .strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
+        Group {
+            if let logo = EndpointLogo.match(name: name, host: host), let image = Self.image(for: logo) {
+                logoTile(image)
+            } else {
+                letterTile
             }
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+
+    /// 暗色模式下也用白底，否则黑色的 Logo 会看不见。
+    private func logoTile(_ image: NSImage) -> some View {
+        shape
+            .fill(.white)
+            .overlay { shape.strokeBorder(.black.opacity(0.1), lineWidth: 0.5) }
+            .overlay {
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: size * 0.68, height: size * 0.68)
+            }
+    }
+
+    private var letterTile: some View {
+        let isDark = colorScheme == .dark
+        let hue = (0.58 + Double(colorIndex ?? EndpointGlyphColors.index(for: name)) / Double(EndpointGlyphColors.count))
+            .truncatingRemainder(dividingBy: 1)
+        return shape
+            .fill(Color(hue: hue, saturation: 0.7, brightness: 0.85).opacity(isDark ? 0.3 : 0.16))
             .overlay {
                 Text(String(name.prefix(1)).uppercased())
                     .font(.system(size: size * 0.5, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color(hue: hue, saturation: isDark ? 0.4 : 0.8, brightness: isDark ? 0.98 : 0.55))
             }
-            .frame(width: size, height: size)
-            .accessibilityHidden(true)
-    }
-
-    private static func index(for name: String) -> Int {
-        let sum = name.unicodeScalars.reduce(0) { $0 &+ Int($1.value) }
-        return abs(sum) % palettes.count
     }
 }
 

@@ -20,6 +20,8 @@ cp "$BIN_DIR/ModelBar" "$BIN_DIR/ModelBarGateway" "$APP/Contents/MacOS/"
 swiftc scripts/make-icon.swift -o "$WORK/make-icon"
 "$WORK/make-icon" "$WORK/AppIcon.iconset"
 iconutil -c icns "$WORK/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
+mkdir -p "$APP/Contents/Resources/Logos"
+cp assets/logos/*.png "$APP/Contents/Resources/Logos/"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
