@@ -45,6 +45,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --sign - "$APP/Contents/MacOS/ModelBarGateway"
-codesign --force --sign - "$APP"
+# 固定证书让钥匙串把更新后的应用认作同一个程序，证书由 scripts/make-signing-cert.sh 创建。
+SIGN_NAME="ModelBar Local Signing"
+SIGN_IDENTITY="$(security find-identity -p codesigning | awk -v name="\"$SIGN_NAME\"" 'index($0, name) && !found { print $2; found = 1 }')"
+if [[ -z "$SIGN_IDENTITY" ]]; then
+  echo "警告：没有找到证书“$SIGN_NAME”，改用临时签名，更新后钥匙串会重新询问授权。" >&2
+  SIGN_IDENTITY="-"
+fi
+
+codesign --force --sign "$SIGN_IDENTITY" "$APP/Contents/MacOS/ModelBarGateway"
+codesign --force --sign "$SIGN_IDENTITY" "$APP"
 echo "已生成 $PWD/$APP"
