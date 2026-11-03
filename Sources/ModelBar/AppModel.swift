@@ -27,6 +27,10 @@ final class AppModel {
     private(set) var loadingModels: Set<UUID> = []
     private(set) var notice: Notice?
     private(set) var installingKilo = false
+    private(set) var availableUpdate: AppUpdate?
+    private(set) var isCheckingForUpdates = false
+    private(set) var isInstallingUpdate = false
+    private(set) var updateMessage: String?
 
     var settingsPage: SettingsPage? = nil
     var isAddingEndpoint = false
@@ -41,6 +45,7 @@ final class AppModel {
     @ObservationIgnored private let client = EndpointClient()
     @ObservationIgnored private var syncGeneration = 0
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
+    @ObservationIgnored private var updateTask: Task<Void, Never>?
 
     init(paths: AppPaths) {
         self.paths = paths
@@ -66,6 +71,7 @@ final class AppModel {
         } else {
             refreshStatuses()
         }
+        startUpdateChecks()
         onChange?()
     }
 
@@ -389,6 +395,107 @@ final class AppModel {
             state.showModelInMenuBar = newValue
             persist()
         }
+    }
+
+    // MARK: 更新
+
+    var checksForUpdates: Bool {
+        get { state.checksForUpdates }
+        set {
+            state.checksForUpdates = newValue
+            persist()
+        }
+    }
+
+    private var currentVersion: AppVersion? {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String).flatMap(AppVersion.init)
+    }
+
+    /// 开发时直接运行的程序不在应用包里，没有东西可以替换。
+    var canUpdate: Bool {
+        currentVersion != nil && Bundle.main.bundleURL.pathExtension == "app" && UpdateFeed.url(paths: paths) != nil
+    }
+
+    private var updateInstaller: UpdateInstaller? {
+        guard canUpdate, let identifier = Bundle.main.bundleIdentifier else { return nil }
+        return UpdateInstaller(
+            appBundle: Bundle.main.bundleURL,
+            bundleIdentifier: identifier,
+            workDirectory: paths.updatesDirectory,
+            transport: URLSessionUpdateTransport(),
+            verifier: SigningVerifier()
+        )
+    }
+
+    private func startUpdateChecks() {
+        guard canUpdate else { return }
+        updateTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            await self?.runScheduledUpdateCheck()
+            // 重启脚本可能还要用旧版回退，等它结束后再清理。正在安装时不清理，下次启动再说。
+            try? await Task.sleep(for: .seconds(60))
+            if self?.isInstallingUpdate == false { self?.updateInstaller?.removeLeftovers() }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(24 * 60 * 60))
+                await self?.runScheduledUpdateCheck()
+            }
+        }
+    }
+
+    private func runScheduledUpdateCheck() async {
+        if state.checksForUpdates { await performUpdateCheck(manual: false) }
+    }
+
+    func checkForUpdates() {
+        Task { await performUpdateCheck(manual: true) }
+    }
+
+    /// 自动检查失败时不打扰用户，下次再试。
+    private func performUpdateCheck(manual: Bool) async {
+        guard let current = currentVersion, let feed = UpdateFeed.url(paths: paths),
+              !isCheckingForUpdates, !isInstallingUpdate else { return }
+        isCheckingForUpdates = true
+        defer { isCheckingForUpdates = false }
+        do {
+            let checker = UpdateChecker(feedURL: feed, allowsAnyHost: paths.isSandboxed, transport: URLSessionUpdateTransport())
+            availableUpdate = try await checker.latest(newerThan: current)
+            updateMessage = manual && availableUpdate == nil ? "已是最新版本" : nil
+        } catch {
+            if manual { updateMessage = "检查更新失败：\(error.localizedDescription)" }
+        }
+    }
+
+    func installUpdate() {
+        guard let update = availableUpdate, let installer = updateInstaller, !isInstallingUpdate else { return }
+        isInstallingUpdate = true
+        updateMessage = nil
+        Task {
+            do {
+                try await installer.install(update) { [weak self] in
+                    try await self?.waitForSyncToFinish()
+                }
+                NSApp.terminate(nil)
+                // 设置窗口里开着表单时系统会拒绝退出，这时新版已经换好，不能停在这里。
+                exit(0)
+            } catch {
+                isInstallingUpdate = false
+                updateMessage = "更新失败：\(error.localizedDescription)"
+                show(.error, "更新失败，旧版本没有变化：\(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// 退出会打断正在写工具配置的同步，所以等它结束后才替换。等不到就放弃，旧版不变。
+    private func waitForSyncToFinish() async throws {
+        for _ in 0..<600 {
+            if !isSyncing { return }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        throw UpdateError("工具配置还在同步，请稍后再试")
+    }
+
+    func openUpdatePage() {
+        if let url = availableUpdate?.pageURL { NSWorkspace.shared.open(url) }
     }
 
     // MARK: 内部
