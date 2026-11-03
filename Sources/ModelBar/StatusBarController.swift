@@ -18,6 +18,7 @@ final class StatusBarController: NSObject {
     private var monitors: [Any] = []
     private var contentSize = CGSize(width: StatusPanelMetrics.width, height: 420)
     private var clickLocation: NSPoint?
+    private var outsideDismissal: (location: NSPoint, time: TimeInterval)?
     var hidesOnOutsideClick = true
 
     init(model: AppModel, openSettings: @escaping (SettingsPage?) -> Void) {
@@ -72,14 +73,31 @@ final class StatusBarController: NSObject {
     }
 
     @objc private func statusItemClicked() {
+        let dismissal = outsideDismissal
+        outsideDismissal = nil
         if NSApp.currentEvent?.type == .rightMouseUp {
             showContextMenu()
         } else if panel?.isVisible == true {
             hidePanel()
+        } else if let dismissal, isSamePress(as: dismissal) {
+            return
         } else {
             clickLocation = NSEvent.mouseLocation
             showPanel()
         }
+    }
+
+    /// 图标窗口由系统托管时，按下图标也算点在面板外，面板在按下时就关了，松开才轮到这里。
+    /// 这次松开如果属于同一次点击，就不能再把面板打开。
+    private func isSamePress(as dismissal: (location: NSPoint, time: TimeInterval)) -> Bool {
+        guard let event = NSApp.currentEvent, event.timestamp - dismissal.time < 1 else { return false }
+        let location = NSEvent.mouseLocation
+        return abs(location.x - dismissal.location.x) <= 4 && abs(location.y - dismissal.location.y) <= 4
+    }
+
+    private func dismissForOutsideClick(at time: TimeInterval) {
+        hidePanel()
+        outsideDismissal = (NSEvent.mouseLocation, time)
     }
 
     private func showContextMenu() {
@@ -170,9 +188,10 @@ final class StatusBarController: NSObject {
 
     private func installMonitors() {
         removeMonitors()
-        if let global = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] _ in
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] event in
+            let time = event.timestamp
             MainActor.assumeIsolated {
-                if self?.hidesOnOutsideClick == true { self?.hidePanel() }
+                if self?.hidesOnOutsideClick == true { self?.dismissForOutsideClick(at: time) }
             }
         }) {
             monitors.append(global)
@@ -187,7 +206,7 @@ final class StatusBarController: NSObject {
                 return event
             }
             if event.window !== self.panel, event.window !== self.statusItem.button?.window {
-                self.hidePanel()
+                self.dismissForOutsideClick(at: event.timestamp)
             }
             return event
         }) {
