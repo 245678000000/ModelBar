@@ -47,11 +47,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# 固定证书让钥匙串把更新后的应用认作同一个程序，证书由 scripts/make-signing-cert.sh 创建。
+# 应用内更新靠固定证书确认新版的来源，证书由 scripts/make-signing-cert.sh 创建。
 SIGN_NAME="ModelBar Local Signing"
 SIGN_IDENTITY="$(security find-identity -p codesigning | awk -v name="\"$SIGN_NAME\"" 'index($0, name) && !found { print $2; found = 1 }')"
 if [[ -z "$SIGN_IDENTITY" ]]; then
-  echo "警告：没有找到证书“$SIGN_NAME”，改用临时签名，更新后钥匙串会重新询问授权。" >&2
+  echo "警告：没有找到证书“$SIGN_NAME”，改用临时签名，这样的版本不能自动更新。" >&2
   SIGN_IDENTITY="-"
 fi
 

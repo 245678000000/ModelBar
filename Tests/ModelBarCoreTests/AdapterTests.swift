@@ -522,3 +522,205 @@ private let opencode = ToolCatalog.adapter(for: .opencode)
         #expect(attributes[.posixPermissions] as? Int == 0o640)
     }
 }
+
+@Suite struct FileKeyStoreTests {
+    private func makeStore() throws -> (store: FileKeyStore, directory: URL) {
+        let directory = try makeHome().masterKeysDirectory
+        return (FileKeyStore(directory: directory), directory)
+    }
+
+    @Test func roundTrips() throws {
+        let (store, _) = try makeStore()
+        let id = UUID()
+        #expect(try store.key(for: id) == nil)
+        try store.setKey("sk-first", for: id)
+        #expect(try store.key(for: id) == "sk-first")
+        try store.setKey("sk-second", for: id)
+        #expect(try store.key(for: id) == "sk-second")
+        try store.setKey(nil, for: id)
+        #expect(try store.key(for: id) == nil)
+    }
+
+    @Test func emptyKeyRemovesTheFile() throws {
+        let (store, directory) = try makeStore()
+        let id = UUID()
+        try store.setKey("sk-first", for: id)
+        try store.setKey("", for: id)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+        try store.setKey(nil, for: id)
+    }
+
+    @Test func onlyTheOwnerCanRead() throws {
+        let (store, directory) = try makeStore()
+        let id = UUID()
+        try store.setKey("sk-first", for: id)
+        let manager = FileManager.default
+        let file = try #require(try manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first)
+        #expect(try manager.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int == 0o600)
+        #expect(try manager.attributesOfItem(atPath: directory.path)[.posixPermissions] as? Int == 0o700)
+    }
+
+    @Test func emptyFileCountsAsNoKey() throws {
+        let (store, directory) = try makeStore()
+        let id = UUID()
+        try store.setKey("sk-first", for: id)
+        let file = try #require(try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first)
+        try Data().write(to: file)
+        #expect(try store.key(for: id) == nil)
+    }
+
+    @Test func failureToRemoveIsReported() throws {
+        let (store, directory) = try makeStore()
+        let id = UUID()
+        try store.setKey("sk-first", for: id)
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: directory.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
+        #expect(throws: (any Error).self) { try store.setKey(nil, for: id) }
+    }
+}
+
+@Suite struct MigratingKeyStoreTests {
+    /// 模拟钥匙串，可以让读取或删除失败，并记录被读了几次。
+    private final class FakeLegacy: KeyStore, @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [UUID: String] = [:]
+        private var readCount = 0
+        var failsReads = false
+        var failsDeletes = false
+
+        var reads: Int { lock.withLock { readCount } }
+
+        func value(for id: UUID) -> String? { lock.withLock { values[id] } }
+
+        func seed(_ key: String, for id: UUID) { lock.withLock { values[id] = key } }
+
+        func key(for id: UUID) throws -> String? {
+            try lock.withLock {
+                readCount += 1
+                if failsReads { throw ConfigError("用户拒绝了钥匙串授权") }
+                return values[id]
+            }
+        }
+
+        func setKey(_ key: String?, for id: UUID) throws {
+            try lock.withLock {
+                if key == nil, failsDeletes { throw ConfigError("无法删除") }
+                values[id] = key
+            }
+        }
+    }
+
+    private func setup() throws -> (store: MigratingKeyStore, files: FileKeyStore, legacy: FakeLegacy, directory: URL) {
+        let directory = try makeHome().masterKeysDirectory
+        let files = FileKeyStore(directory: directory)
+        let legacy = FakeLegacy()
+        return (MigratingKeyStore(primary: files, legacy: legacy), files, legacy, directory)
+    }
+
+    @Test func firstReadMovesTheKeyToAFileAndRemovesTheOldEntry() throws {
+        let (store, files, legacy, _) = try setup()
+        let id = UUID()
+        legacy.seed("sk-old", for: id)
+        #expect(try store.key(for: id) == "sk-old")
+        #expect(try files.key(for: id) == "sk-old")
+        #expect(legacy.value(for: id) == nil)
+    }
+
+    @Test func laterReadsDoNotTouchTheKeychain() throws {
+        let (store, _, legacy, _) = try setup()
+        let id = UUID()
+        legacy.seed("sk-old", for: id)
+        _ = try store.key(for: id)
+        let readsAfterMigration = legacy.reads
+        #expect(try store.key(for: id) == "sk-old")
+        #expect(legacy.reads == readsAfterMigration)
+    }
+
+    @Test func readingAKeyThatExistsNowhereIsNil() throws {
+        let (store, _, _, _) = try setup()
+        #expect(try store.key(for: UUID()) == nil)
+    }
+
+    @Test func deniedKeychainAccessIsReportedAndCanBeRetried() throws {
+        let (store, files, legacy, _) = try setup()
+        let id = UUID()
+        legacy.seed("sk-old", for: id)
+        legacy.failsReads = true
+        #expect(throws: (any Error).self) { _ = try store.key(for: id) }
+        #expect(try files.key(for: id) == nil)
+        #expect(legacy.value(for: id) == "sk-old")
+        legacy.failsReads = false
+        #expect(try store.key(for: id) == "sk-old")
+    }
+
+    @Test func oldEntryIsKeptWhenTheFileCannotBeWritten() throws {
+        let (store, _, legacy, directory) = try setup()
+        let id = UUID()
+        legacy.seed("sk-old", for: id)
+        try FileManager.default.createDirectory(at: directory.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "挡住目录".write(to: directory, atomically: true, encoding: .utf8)
+        #expect(try store.key(for: id) == "sk-old")
+        #expect(legacy.value(for: id) == "sk-old")
+    }
+
+    @Test func failureToRemoveTheOldEntryStillReturnsTheKey() throws {
+        let (store, files, legacy, _) = try setup()
+        let id = UUID()
+        legacy.seed("sk-old", for: id)
+        legacy.failsDeletes = true
+        #expect(try store.key(for: id) == "sk-old")
+        #expect(try files.key(for: id) == "sk-old")
+    }
+
+    @Test func savingANewKeyReplacesTheOldEntryWithoutReadingIt() throws {
+        let (store, files, legacy, _) = try setup()
+        let id = UUID()
+        legacy.seed("sk-old", for: id)
+        try store.setKey("sk-new", for: id)
+        #expect(try files.key(for: id) == "sk-new")
+        #expect(legacy.value(for: id) == nil)
+        #expect(legacy.reads == 0)
+    }
+
+    @Test func savedKeyWinsEvenIfTheOldEntryCannotBeRemoved() throws {
+        let (store, _, legacy, _) = try setup()
+        let id = UUID()
+        legacy.seed("sk-old", for: id)
+        legacy.failsDeletes = true
+        try store.setKey("sk-new", for: id)
+        #expect(try store.key(for: id) == "sk-new")
+    }
+
+    @Test func removingAKeyClearsBothPlaces() throws {
+        let (store, files, legacy, _) = try setup()
+        let id = UUID()
+        legacy.seed("sk-old", for: id)
+        try files.setKey("sk-file", for: id)
+        try store.setKey(nil, for: id)
+        #expect(try store.key(for: id) == nil)
+        #expect(legacy.value(for: id) == nil)
+    }
+
+    /// 否则下次读取时，已经清除的 Key 会从钥匙串里复活。
+    @Test func failureToRemoveTheOldEntryIsReportedWhenClearingAKey() throws {
+        let (store, _, legacy, _) = try setup()
+        let id = UUID()
+        legacy.seed("sk-old", for: id)
+        legacy.failsDeletes = true
+        #expect(throws: (any Error).self) { try store.setKey(nil, for: id) }
+    }
+
+    /// 会写真实钥匙串，只在显式要求时运行。
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["MODELBAR_KEYCHAIN_TEST"] == "1"))
+    func migratesFromTheRealKeychain() throws {
+        let legacy = KeychainStore(service: "ModelBar.tests")
+        let id = UUID()
+        defer { try? legacy.setKey(nil, for: id) }
+        try legacy.setKey("sk-old", for: id)
+        let files = FileKeyStore(directory: try makeHome().masterKeysDirectory)
+        let store = MigratingKeyStore(primary: files, legacy: legacy)
+        #expect(try store.key(for: id) == "sk-old")
+        #expect(try files.key(for: id) == "sk-old")
+        #expect(try legacy.key(for: id) == nil)
+    }
+}

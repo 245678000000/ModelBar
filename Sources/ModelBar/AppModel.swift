@@ -49,9 +49,8 @@ final class AppModel {
 
     init(paths: AppPaths) {
         self.paths = paths
-        keyStore = paths.isSandboxed
-            ? SandboxFileKeyStore(directory: paths.support.appending(path: "sandbox-keys", directoryHint: .isDirectory))
-            : KeychainStore()
+        let files = FileKeyStore(directory: paths.masterKeysDirectory)
+        keyStore = paths.isSandboxed ? files : MigratingKeyStore(primary: files, legacy: KeychainStore())
         let gateway = Bundle.main.executableURL?.deletingLastPathComponent().appending(path: "ModelBarGateway")
         engine = SyncEngine(paths: paths, keyStore: keyStore, bridge: BridgeManager(paths: paths, executable: gateway))
         store = StateStore(file: paths.stateFile)

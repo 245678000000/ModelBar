@@ -145,7 +145,7 @@ private struct EndpointDetailView: View {
             .confirmationDialog("删除“\(endpoint.name)”？", isPresented: $confirmDelete) {
                 Button("删除", role: .destructive) { model.deleteEndpoint(endpointID) }
             } message: {
-                Text("密钥会一起从钥匙串移除。如果它正在使用，工具会切到下一个接口。")
+                Text("密钥会一起删除。如果它正在使用，工具会切到下一个接口。")
             }
         }
     }
@@ -207,7 +207,7 @@ private struct EndpointDetailView: View {
                         if isRevealed {
                             TextField("API Key", text: keyBinding, prompt: Text("sk-…"))
                         } else {
-                            SecureField("API Key", text: keyBinding, prompt: Text(endpoint.hasKey ? "已保存在钥匙串，输入新值可替换" : "sk-…（本地接口可留空）"))
+                            SecureField("API Key", text: keyBinding, prompt: Text(endpoint.hasKey ? "已保存，输入新值可替换" : "sk-…（本地接口可留空）"))
                         }
                     }
                     .labelsHidden()
@@ -537,7 +537,7 @@ private struct AddEndpointSheet: View {
                 }
             }
 
-            Text("密钥保存在系统钥匙串。添加后会自动拉取模型并测试连接。")
+            Text("密钥保存在本机文件里，只有你的账户能读。添加后会自动拉取模型并测试连接。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
@@ -646,7 +646,7 @@ private struct ToolsPane: View {
                 ToolSection(model: model, tool: tool)
             }
             Section {
-                Text("Key 保存在钥匙串。为了让工具在 ModelBar 退出后仍能读取，当前接口的 Key 会另存一份只有你的账户能读的文件（权限 0600），切换接口或停用全部工具时自动删除。工具的配置文件里只写这个文件的路径，不写 Key 本身。")
+                Text("Key 保存在只有你的账户能读的文件里。为了让工具在 ModelBar 退出后仍能读取，当前接口的 Key 会另存一份（权限 0600），切换接口或停用全部工具时自动删除。工具的配置文件里只写这个文件的路径，不写 Key 本身。")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 HStack {
