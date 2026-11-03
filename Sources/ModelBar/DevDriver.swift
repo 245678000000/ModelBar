@@ -45,6 +45,10 @@ final class DevDriver {
         case "snap":
             snapshot(window(named: arguments[0]), name: arguments[1])
         case "snap-shadow":
+            guard arguments.count >= 2 else {
+                print("dev> usage: snap-shadow <window> <name>")
+                return
+            }
             snapshot(window(named: arguments[0]), name: arguments[1], includingShadow: true)
         case "click":
             click(window(named: arguments[0]), x: Double(arguments[1]) ?? 0, y: Double(arguments[2]) ?? 0)
@@ -150,7 +154,8 @@ final class DevDriver {
         }
         try? FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         let url = output.appending(path: "\(name).png")
-        let rep = composited(window, includingShadow: includingShadow) ?? cached(window)
+        // 视图缓存不含阴影，要阴影时宁可失败，也不输出一张看不出问题的图。
+        let rep = composited(window, includingShadow: includingShadow) ?? (includingShadow ? nil : cached(window))
         guard let rep, let data = rep.representation(using: .png, properties: [:]) else {
             print("dev> snapshot failed \(name)")
             return
