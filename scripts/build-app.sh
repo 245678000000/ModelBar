@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="${0:A:h}/.."
 cd "$ROOT"
 
-VERSION="1.2.0"
+VERSION="1.3.0"
 APP="dist/ModelBar.app"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -35,7 +35,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>ModelBar</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
-  <key>CFBundleVersion</key><string>4</string>
+  <key>CFBundleVersion</key><string>5</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
