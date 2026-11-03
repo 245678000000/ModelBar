@@ -31,5 +31,5 @@ CONF
 PASSWORD="$(/usr/bin/openssl rand -hex 16)"
 /usr/bin/openssl pkcs12 -export -inkey "$WORK/key.pem" -in "$WORK/cert.pem" \
   -out "$WORK/cert.p12" -passout "pass:$PASSWORD"
-security import "$WORK/cert.p12" -k login.keychain-db -P "$PASSWORD" -x -T /usr/bin/codesign >/dev/null
+security import "$WORK/cert.p12" -k "$HOME/Library/Keychains/login.keychain-db" -P "$PASSWORD" -x -T /usr/bin/codesign >/dev/null
 echo "已创建证书：$NAME"
