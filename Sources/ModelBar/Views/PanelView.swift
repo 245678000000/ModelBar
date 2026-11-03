@@ -86,6 +86,7 @@ struct PanelView: View {
             ForEach(model.state.endpoints) { endpoint in
                 EndpointRow(
                     endpoint: endpoint,
+                    colorIndex: model.glyphColorIndex(for: endpoint),
                     isActive: endpoint.id == model.state.activeEndpointID,
                     isTesting: model.testing.contains(endpoint.id)
                 ) {
@@ -158,6 +159,7 @@ private struct PanelGlass: ViewModifier {
 
 private struct EndpointRow: View {
     let endpoint: Endpoint
+    let colorIndex: Int?
     let isActive: Bool
     let isTesting: Bool
     let action: () -> Void
@@ -165,7 +167,7 @@ private struct EndpointRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                EndpointGlyph(name: endpoint.name)
+                EndpointGlyph(name: endpoint.name, host: endpoint.host, colorIndex: colorIndex)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(endpoint.name)
                         .font(.system(size: 12.5, weight: .medium))

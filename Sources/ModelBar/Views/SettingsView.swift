@@ -11,7 +11,7 @@ struct SettingsView: View {
                 Section("接口") {
                     ForEach(model.state.endpoints) { endpoint in
                         HStack(spacing: 8) {
-                            EndpointGlyph(name: endpoint.name, size: 20)
+                            EndpointGlyph(name: endpoint.name, host: endpoint.host, colorIndex: model.glyphColorIndex(for: endpoint), size: 20)
                             Text(endpoint.name).lineLimit(1)
                             Spacer(minLength: 2)
                             if endpoint.id == model.state.activeEndpointID {
@@ -172,7 +172,7 @@ private struct EndpointDetailView: View {
     private func hero(_ endpoint: Endpoint) -> some View {
         Section {
             HStack(spacing: 14) {
-                EndpointGlyph(name: endpoint.name, size: 48)
+                EndpointGlyph(name: endpoint.name, host: endpoint.host, colorIndex: model.glyphColorIndex(for: endpoint), size: 48)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(endpoint.name).font(.title2.weight(.semibold))
                     Text(endpoint.host).font(.callout).foregroundStyle(.secondary)

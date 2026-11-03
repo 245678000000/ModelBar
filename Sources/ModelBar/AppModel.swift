@@ -83,6 +83,13 @@ final class AppModel {
         state.endpoints.first { $0.id == id }
     }
 
+    /// 只有文字图标用得上颜色，所以只在没有官方图标的接口之间分配。
+    func glyphColorIndex(for endpoint: Endpoint) -> Int? {
+        let lettered = state.endpoints.filter { EndpointLogo.match(name: $0.name, host: $0.host) == nil }
+        guard let position = lettered.firstIndex(where: { $0.id == endpoint.id }) else { return nil }
+        return EndpointGlyphColors.assign(lettered.map(\.name))[position]
+    }
+
     func status(of tool: ToolID) -> ToolState {
         statuses[tool] ?? .disabled
     }

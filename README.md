@@ -104,6 +104,10 @@ opencode 的后台服务不会自动读取新配置，所以切换时如果它�
 
 先在面板里关掉所有工具的开关，这会恢复它们原来的配置并移除转换服务。然后退出 ModelBar，把它移到废纸篓。
 
+## 图标
+
+接口前面的官方图标打包在应用里，不需要联网，按接口名和域名自动匹配，没有匹配时显示名称的第一个字。图标来自 [LobeHub Icons](https://github.com/lobehub/lobe-icons)（MIT 许可），Logo 的商标权归各公司所有，这里只用来标示接口对应的服务，详见 [assets/logos](assets/logos/README.md)。
+
 ## 从源码构建
 
 只需要 Command Line Tools，不需要完整的 Xcode。
