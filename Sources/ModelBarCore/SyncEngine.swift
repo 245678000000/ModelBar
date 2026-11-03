@@ -7,6 +7,7 @@ public struct AppState: Codable, Equatable, Sendable {
     public var originals: [ToolID: [String: String]] = [:]
     public var showModelInMenuBar = false
     public var bridgeEnabled = false
+    public var checksForUpdates = true
 
     public init() {}
 
@@ -24,7 +25,7 @@ public struct AppState: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case endpoints, activeEndpointID, enabledTools, originals, showModelInMenuBar, bridgeEnabled
+        case endpoints, activeEndpointID, enabledTools, originals, showModelInMenuBar, bridgeEnabled, checksForUpdates
     }
 
     public init(from decoder: Decoder) throws {
@@ -35,6 +36,7 @@ public struct AppState: Codable, Equatable, Sendable {
         originals = try container.decodeIfPresent([ToolID: [String: String]].self, forKey: .originals) ?? [:]
         showModelInMenuBar = try container.decodeIfPresent(Bool.self, forKey: .showModelInMenuBar) ?? false
         bridgeEnabled = try container.decodeIfPresent(Bool.self, forKey: .bridgeEnabled) ?? false
+        checksForUpdates = try container.decodeIfPresent(Bool.self, forKey: .checksForUpdates) ?? true
     }
 }
 

@@ -75,7 +75,7 @@ struct SettingsView: View {
         case .general:
             GeneralPane(model: model)
         case .about:
-            AboutPane()
+            AboutPane(model: model)
         case nil:
             placeholder
         }
@@ -793,6 +793,9 @@ private struct GeneralPane: View {
             Section {
                 Toggle("开机时自动启动", isOn: $model.launchesAtLogin)
                 Toggle("在菜单栏显示模型名", isOn: $model.showModelInMenuBar)
+                if model.canUpdate {
+                    Toggle("自动检查更新", isOn: $model.checksForUpdates)
+                }
             }
             Section("数据") {
                 HStack {
@@ -815,6 +818,8 @@ private struct GeneralPane: View {
 }
 
 private struct AboutPane: View {
+    let model: AppModel
+
     private var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版"
     }
@@ -832,7 +837,34 @@ private struct AboutPane: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
+            if model.canUpdate {
+                updateControls
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var updateControls: some View {
+        VStack(spacing: 8) {
+            if let update = model.availableUpdate {
+                Text("发现新版本 \(update.version.description)").font(.callout)
+                HStack {
+                    Button("查看更新内容") { model.openUpdatePage() }
+                    Button(model.isInstallingUpdate ? "正在更新…" : "安装并重启") { model.installUpdate() }
+                        .disabled(model.isInstallingUpdate)
+                }
+            } else {
+                Button(model.isCheckingForUpdates ? "正在检查…" : "检查更新") { model.checkForUpdates() }
+                    .disabled(model.isCheckingForUpdates)
+            }
+            if let message = model.updateMessage {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+            }
+        }
+        .padding(.top, 8)
     }
 }

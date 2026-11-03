@@ -23,6 +23,7 @@ public struct AppPaths: Sendable {
     public var stateFile: URL { support.appending(path: "state.json") }
     public var keysDirectory: URL { support.appending(path: "keys", directoryHint: .isDirectory) }
     public var backupsDirectory: URL { support.appending(path: "backups", directoryHint: .isDirectory) }
+    public var updatesDirectory: URL { support.appending(path: "updates", directoryHint: .isDirectory) }
 
     public func keyFile(for id: UUID) -> URL {
         keysDirectory.appending(path: "\(id.uuidString).key")

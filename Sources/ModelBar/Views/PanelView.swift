@@ -19,6 +19,9 @@ struct PanelView: View {
                 }
                 toolsModule
             }
+            if let update = model.availableUpdate {
+                UpdateBanner(model: model, update: update)
+            }
             if let notice = model.notice {
                 NoticeView(notice: notice)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -420,6 +423,40 @@ private struct ToolRow: View {
             .labelsHidden()
             .toggleStyle(.switch)
             .controlSize(.mini)
+        }
+    }
+}
+
+private struct UpdateBanner: View {
+    let model: AppModel
+    let update: AppUpdate
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 13))
+                .foregroundStyle(.tint)
+            Text("新版本 \(update.version.description)")
+                .font(.system(size: 11.5, weight: .medium))
+            Button("详情") { model.openUpdatePage() }
+                .buttonStyle(.link)
+                .font(.system(size: 10.5))
+            Spacer(minLength: 0)
+            if model.isInstallingUpdate {
+                ProgressView().controlSize(.mini)
+                Text("正在更新…")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            } else {
+                Button("安装并重启") { model.installUpdate() }
+                    .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.primary.opacity(0.05))
         }
     }
 }
