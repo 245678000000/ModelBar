@@ -22,6 +22,7 @@ public struct AppPaths: Sendable {
     public var support: URL { home.appending(path: "Library/Application Support/ModelBar", directoryHint: .isDirectory) }
     public var stateFile: URL { support.appending(path: "state.json") }
     public var keysDirectory: URL { support.appending(path: "keys", directoryHint: .isDirectory) }
+    public var masterKeysDirectory: URL { support.appending(path: "master-keys", directoryHint: .isDirectory) }
     public var backupsDirectory: URL { support.appending(path: "backups", directoryHint: .isDirectory) }
     public var updatesDirectory: URL { support.appending(path: "updates", directoryHint: .isDirectory) }
 

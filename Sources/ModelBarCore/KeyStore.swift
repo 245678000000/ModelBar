@@ -14,7 +14,7 @@ public struct KeyStoreError: LocalizedError {
     }
 }
 
-/// 主密钥存放在系统钥匙串。
+/// 旧版本的存放位置，现在只用于迁移。
 public struct KeychainStore: KeyStore {
     public let service: String
 
@@ -78,8 +78,9 @@ public final class InMemoryKeyStore: KeyStore, @unchecked Sendable {
     }
 }
 
-/// 隔离运行时使用的文件版本，让沙盒模式下重启应用后密钥仍在。
-public struct SandboxFileKeyStore: KeyStore {
+/// 密钥存成只有当前用户能读的文件。
+/// 不用钥匙串，是因为自签名的应用没有 Apple 的团队 ID，钥匙串按每次编译的哈希记录授权，每次更新都要重新授权。
+public struct FileKeyStore: KeyStore {
     public let directory: URL
 
     public init(directory: URL) {
@@ -91,14 +92,50 @@ public struct SandboxFileKeyStore: KeyStore {
     }
 
     public func key(for id: UUID) throws -> String? {
-        try? String(contentsOf: file(for: id), encoding: .utf8)
+        guard let key = try? String(contentsOf: file(for: id), encoding: .utf8), !key.isEmpty else { return nil }
+        return key
     }
 
     public func setKey(_ key: String?, for id: UUID) throws {
+        let file = file(for: id)
         guard let key, !key.isEmpty else {
-            try? FileManager.default.removeItem(at: file(for: id))
+            if FileManager.default.fileExists(atPath: file.path) {
+                try FileManager.default.removeItem(at: file)
+            }
             return
         }
-        try FileSupport.writePrivate(Data(key.utf8), to: file(for: id))
+        try FileSupport.writePrivate(Data(key.utf8), to: file)
+    }
+}
+
+/// 旧版本把密钥存在钥匙串。第一次用到时才搬过来，避免一启动就连续弹窗。
+public struct MigratingKeyStore: KeyStore {
+    private let primary: any KeyStore
+    private let legacy: any KeyStore
+
+    public init(primary: any KeyStore, legacy: any KeyStore) {
+        self.primary = primary
+        self.legacy = legacy
+    }
+
+    public func key(for id: UUID) throws -> String? {
+        if let key = try primary.key(for: id) { return key }
+        guard let key = try legacy.key(for: id) else { return nil }
+        // 确认写好了才删旧条目。写不了时这次仍然能用，下次再试。
+        if (try? primary.setKey(key, for: id)) != nil, (try? primary.key(for: id)) == key {
+            try? legacy.setKey(nil, for: id)
+        }
+        return key
+    }
+
+    public func setKey(_ key: String?, for id: UUID) throws {
+        try primary.setKey(key, for: id)
+        if let key, !key.isEmpty {
+            // 文件优先，旧条目删不掉也不影响使用。
+            try? legacy.setKey(nil, for: id)
+        } else {
+            // 清除 Key 时必须报错，否则下次读取它会从钥匙串里复活。
+            try legacy.setKey(nil, for: id)
+        }
     }
 }
