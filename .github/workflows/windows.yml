@@ -10,7 +10,7 @@ on:
 jobs:
   build-and-test:
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 35
     defaults:
       run:
         working-directory: windows
@@ -47,12 +47,14 @@ jobs:
         run: npm install -g @openai/codex opencode-ai @anthropic-ai/claude-code @earendil-works/pi-coding-agent
 
       - name: End-to-end test with real agents
+        timeout-minutes: 15
         run: |
           dotnet build tools/ModelBar.DevCli -c Release
           python tests/smoke/smoke.py tools/ModelBar.DevCli/bin/Release/net10.0/ModelBar.DevCli.exe dist/ModelBar/ModelBarGateway.exe
 
       - name: Render screenshots
         if: always()
+        timeout-minutes: 6
         run: |
           dotnet build src/ModelBar.App -c Release -p:DefineConstants=DEVSNAPSHOT -o snapshot-build
           python tests/smoke/seed_screens.py "$env:RUNNER_TEMP/screens-home"

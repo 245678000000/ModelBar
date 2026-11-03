@@ -9,6 +9,7 @@ import json
 import os
 import pathlib
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -115,16 +116,33 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.flush()
 
 
+def kill_tree(process):
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True)
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except OSError:
+            pass
+
+
 def run(command, env=None, timeout=150, cwd=None):
-    try:
-        result = subprocess.run(command, env=env, cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True,
-                                text=True, encoding="utf-8", errors="replace", timeout=timeout,
-                                shell=False)
-        return result.returncode, result.stdout + result.stderr
-    except subprocess.TimeoutExpired as error:
-        return -1, f"timeout: {error.stdout or ''}"
-    except OSError as error:
-        return -2, str(error)
+    """输出写文件而不是管道：后台服务继承了管道句柄时，读管道会一直等下去，超时也没用。"""
+    with tempfile.TemporaryFile() as output:
+        options = {} if os.name == "nt" else {"start_new_session": True}
+        try:
+            process = subprocess.Popen(command, env=env, cwd=cwd, stdin=subprocess.DEVNULL, stdout=output,
+                                       stderr=subprocess.STDOUT, shell=False, **options)
+        except OSError as error:
+            return -2, str(error)
+        try:
+            code = process.wait(timeout)
+        except subprocess.TimeoutExpired:
+            kill_tree(process)
+            code = -1
+        output.seek(0)
+        text = output.read().decode("utf-8", "replace")
+        return code, f"[timeout after {timeout}s]\n{text}" if code == -1 else text
 
 
 def which(name):
@@ -133,7 +151,7 @@ def which(name):
 
 def main():
     # Windows 控制台默认不是 UTF-8，打印中文会报错。
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     cli, gateway = sys.argv[1], str(pathlib.Path(sys.argv[2]).resolve())
     wanted = sys.argv[3:] or ["ClaudeCode", "Codex", "OpenCode", "Pi"]
@@ -203,14 +221,15 @@ def main():
     for tool in wanted:
         with lock:
             log.clear()
-        code, output = run(commands[tool]("say hi", False), tool_env, cwd=str(work))
+        print(f"--- {tool}")
+        code, output = run(commands[tool]("say hi", False), tool_env, timeout=90, cwd=str(work))
         with lock:
             requests = len(log)
         check(f"{tool} chat", ANSWER in output, f"exit={code} requests={requests}" + ("" if ANSWER in output else f"\n{output[-1500:]}"))
 
         with lock:
             log.clear()
-        code, output = run(commands[tool]("RUN_TOOL please run the command", True), tool_env, cwd=str(work))
+        code, output = run(commands[tool]("RUN_TOOL please run the command", True), tool_env, timeout=90, cwd=str(work))
         with lock:
             returned = any(MARKER in str(m.get("content")) for body in log for m in body.get("messages", []) if m.get("role") == "tool")
         check(f"{tool} tool call", TOOL_ANSWER in output and returned, f"exit={code}" + ("" if TOOL_ANSWER in output else f"\n{output[-1500:]}"))
