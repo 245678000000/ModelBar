@@ -72,6 +72,43 @@ jobs:
           $count = (Get-ChildItem screenshots -Filter *.png | Measure-Object).Count
           if ($count -lt 10) { throw "expected 10 screenshots, got $count" }
 
+      # 上面两步用的是另外编译的版本，这一步才真正启动安装包里的单文件程序。
+      - name: Launch the packaged app
+        if: always()
+        timeout-minutes: 3
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          function Save-Desktop($name) {
+            $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $image = [System.Drawing.Bitmap]::new($bounds.Width, $bounds.Height)
+            $graphics = [System.Drawing.Graphics]::FromImage($image)
+            $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+            $image.Save((Join-Path $PWD "screenshots/$name.png"))
+            $graphics.Dispose()
+            $image.Dispose()
+          }
+          function Assert-Healthy($process) {
+            $crash = "$env:APPDATA/ModelBar/logs/crash.log"
+            if (Test-Path $crash) { Get-Content $crash; Copy-Item $crash screenshots/packaged-crash.log; throw "packaged app reported a crash" }
+            if ($process.HasExited) { throw "packaged app exited with code $($process.ExitCode)" }
+          }
+          New-Item -ItemType Directory -Force screenshots | Out-Null
+          $exe = (Resolve-Path dist/ModelBar/ModelBar.exe).Path
+          $first = Start-Process $exe -PassThru
+          $null = $first.Handle
+          Start-Sleep 20
+          Save-Desktop "desktop-first-run"
+          Assert-Healthy $first
+          # 第二次启动应该立刻退出，并让正在运行的实例弹出面板。
+          $second = Start-Process $exe -PassThru
+          $null = $second.Handle
+          if (-not $second.WaitForExit(30000)) { throw "second launch did not exit" }
+          Start-Sleep 5
+          Save-Desktop "desktop-panel"
+          Assert-Healthy $first
+          Stop-Process $first -Force
+          "packaged app ok"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
