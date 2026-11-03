@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="src/ModelBar.Core/ModelBar.Core.csproj" />
+  <Project Path="src/ModelBar.Gateway/ModelBar.Gateway.csproj" />
+  <Project Path="src/ModelBar.App/ModelBar.App.csproj" />
+  <Project Path="tests/ModelBar.Core.Tests/ModelBar.Core.Tests.csproj" />
+  <Project Path="tools/ModelBar.DevCli/ModelBar.DevCli.csproj" />
+</Solution>

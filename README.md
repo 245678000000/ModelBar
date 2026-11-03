@@ -4,6 +4,8 @@
 
 不修改 Cursor 或任何工具的程序文件，只写它们公开的配置文件，所以工具更新不会影响使用。
 
+Windows 版在 [windows](windows/README.md) 目录。
+
 ## 安装
 
 运行 `./scripts/package-dmg.sh` 生成 `dist/ModelBar.dmg`，把里面的 ModelBar 拖进“应用程序”，然后打开。它只出现在菜单栏，不占程序坞。

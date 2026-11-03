@@ -1,0 +1,74 @@
+name: Windows
+
+on:
+  push:
+    paths:
+      - "windows/**"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: windows
+        shell: pwsh
+    env:
+      DOTNET_NOLOGO: "1"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Unit tests
+        run: dotnet test tests/ModelBar.Core.Tests -c Release
+
+      - name: Publish
+        run: |
+          dotnet publish src/ModelBar.Gateway -c Release -r win-x64 -o dist/ModelBar
+          dotnet publish src/ModelBar.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o dist/ModelBar
+          Remove-Item dist/ModelBar/*.pdb -ErrorAction SilentlyContinue
+          Get-ChildItem dist/ModelBar | Format-Table Name, Length
+
+      - name: Install real agents
+        run: npm install -g @openai/codex opencode-ai @anthropic-ai/claude-code @earendil-works/pi-coding-agent
+
+      - name: End-to-end test with real agents
+        run: |
+          dotnet build tools/ModelBar.DevCli -c Release
+          python tests/smoke/smoke.py tools/ModelBar.DevCli/bin/Release/net10.0/ModelBar.DevCli.exe dist/ModelBar/ModelBarGateway.exe
+
+      - name: Render screenshots
+        if: always()
+        run: |
+          dotnet build src/ModelBar.App -c Release -p:DefineConstants=DEVSNAPSHOT -o snapshot-build
+          python tests/smoke/seed_screens.py "$env:RUNNER_TEMP/screens-home"
+          $env:MODELBAR_HOME = "$env:RUNNER_TEMP/screens-home"
+          $process = Start-Process snapshot-build/ModelBar.exe -ArgumentList "--dev-snapshot", "screenshots" -PassThru
+          if (-not $process.WaitForExit(120000)) { Stop-Process $process -Force; throw "snapshot timed out" }
+          Get-ChildItem screenshots | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: windows/screenshots
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ModelBar-win-x64
+          path: windows/dist/ModelBar
