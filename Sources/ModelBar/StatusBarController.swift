@@ -130,6 +130,11 @@ final class StatusBarController: NSObject {
         let hosting = NSHostingView(rootView: AnyView(root))
         hosting.sizingOptions = []
         hosting.safeAreaRegions = []
+        // 玻璃材质会画到圆角外面，不裁掉的话，窗口的方形边界和系统阴影都会露出来。
+        hosting.wantsLayer = true
+        hosting.layer?.cornerRadius = StatusPanelMetrics.cornerRadius
+        hosting.layer?.cornerCurve = .continuous
+        hosting.layer?.masksToBounds = true
         hostingView = hosting
         panel.contentView = hosting
         return panel
